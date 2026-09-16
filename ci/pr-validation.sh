@@ -564,12 +564,10 @@ else
   printf '\n%s\n' "mutation scope: ${MUTATION_SCOPE}"
 
   pit_args=()
-  stryker_args=()
   if [[ "${MUTATION_SCOPE}" == "changed" ]]; then
     pit_args+=(-DwithHistory=true
                -DhistoryInputFile=target/pit-history
                -DhistoryOutputFile=target/pit-history)
-    stryker_args+=(--since="${BASE_REF}")
   fi
 
   if ! have_backend; then
@@ -583,12 +581,45 @@ else
       mvn "${MVN_FLAGS[@]}" org.pitest:pitest-maven:mutationCoverage "${pit_args[@]}"
   fi
 
-  if frontend_has_script 'test:mutation'; then
-    run mutation-stryker "Stryker mutation testing (frontend, ${MUTATION_SCOPE})" "${FRONTEND}" \
-      npm run test:mutation -- "${stryker_args[@]}"
-  else
+  # StrykerJS has no git-aware "since a ref" flag -- there is no --since
+  # option in its CLI (confirmed against `stryker run --help`); a prior
+  # version of this script passed one anyway and it failed outright with
+  # "unknown option". -m/--mutate is real, but it REPLACES stryker.config.mjs's
+  # `mutate` list rather than narrowing it, so passing a raw git diff through
+  # -m would silently pull files outside that deliberately curated scope (see
+  # stryker.config.mjs's own comment on why it excludes Angular component
+  # framework noise) back into mutation testing. The intersection is computed
+  # here instead: read the configured list live (never duplicated in this
+  # script, so the two cannot drift), intersect it with what changed since
+  # BASE_REF, and pass only that through -m.
+  if ! frontend_has_script 'test:mutation'; then
     start_step mutation-stryker "Stryker mutation testing (frontend, ${MUTATION_SCOPE})"
     unrunnable mutation-stryker "QUALITY-GATES.md requires Stryker with a break threshold but frontend/package.json has no \"test:mutation\" script"
+  elif [[ "${MUTATION_SCOPE}" == "changed" ]]; then
+    mapfile -t stryker_full_scope < <(
+      node -e "import('${FRONTEND}/stryker.config.mjs').then(m => m.default.mutate.forEach(f => console.log(f)))" \
+        2>/dev/null
+    )
+    mapfile -t stryker_changed < <(
+      git -C "${WORKSPACE}" diff --name-only "${BASE_REF}" -- frontend | sed 's|^frontend/||'
+    )
+    stryker_scope=()
+    for f in "${stryker_full_scope[@]}"; do
+      for c in "${stryker_changed[@]}"; do
+        [[ "${f}" == "${c}" ]] && stryker_scope+=("${f}")
+      done
+    done
+
+    if (( ${#stryker_scope[@]} == 0 )); then
+      start_step mutation-stryker "Stryker mutation testing (frontend, ${MUTATION_SCOPE})"
+      pass_step mutation-stryker "none of stryker.config.mjs's mutated files changed since ${BASE_REF} -- nothing in scope"
+    else
+      run mutation-stryker "Stryker mutation testing (frontend, ${MUTATION_SCOPE})" "${FRONTEND}" \
+        npm run test:mutation -- -m "$(IFS=,; echo "${stryker_scope[*]}")"
+    fi
+  else
+    run mutation-stryker "Stryker mutation testing (frontend, ${MUTATION_SCOPE})" "${FRONTEND}" \
+      npm run test:mutation
   fi
 fi
 
