@@ -82,6 +82,10 @@ RUN cp target/fullstack-loop-backend-*.jar app.jar \
 # ---------------------------------------------------------------------------
 FROM eclipse-temurin:21-jre-alpine AS runtime
 
+LABEL org.opencontainers.image.title="fullstack-loop-backend" \
+      org.opencontainers.image.description="Spring Boot provider for the Fullstack Loop Task API" \
+      org.opencontainers.image.source="https://github.com/arnaudgelas/fullstack-loop"
+
 # No extra packages: the HEALTHCHECK uses busybox wget, already in the base image.
 RUN addgroup -S -g 10001 loop \
  && adduser -S -u 10001 -G loop loop
@@ -98,12 +102,12 @@ COPY --from=dockerfile-lint /lint.stamp /usr/share/loop/backend-dockerfile-linte
 ENV SPRING_DATA_MONGODB_URI=mongodb://mongo:27017/loop \
     JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0"
 
-USER loop:loop
+USER 10001:10001
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=40s --retries=5 \
-  CMD wget -q -O - http://localhost:8080/actuator/health || exit 1
+  CMD ["wget", "-q", "-O", "-", "http://localhost:8080/actuator/health"]
 
 # The extracted layers include the Spring Boot launcher, so start through it
 # rather than re-packing a fat jar.

@@ -65,6 +65,7 @@ class TokenValidationIT extends AuthTestSupport {
 
     @Test
     @DisplayName("no token at all is 401 with a Problem body and a WWW-Authenticate header")
+    @SuppressWarnings("PMD.LawOfDemeter") // ResponseEntity exposes headers through this API.
     void missingTokenIsRejected() {
         ResponseEntity<Map<String, Object>> response = getTasks(null);
 
@@ -85,6 +86,7 @@ class TokenValidationIT extends AuthTestSupport {
         assertUnauthorized("not.a.jwt");
     }
 
+    @SuppressWarnings("PMD.LawOfDemeter") // ResponseEntity exposes headers through this API.
     private void assertUnauthorized(String token) {
         ResponseEntity<Map<String, Object>> response = getTasks(token);
 

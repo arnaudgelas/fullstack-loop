@@ -44,6 +44,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # ci/pr-validation.sh scopes PIT/Stryker with `git diff BASE_REF`
       # (MUTATION_SCOPE=changed). On a pull_request, BASE_REF must be a real
@@ -96,6 +97,7 @@ jobs:
       # `ci` service in docker-compose.yml does not declare them as
       # environment passthrough.
       - name: Run PR validation gate (docker compose --profile ci run ci)
+        id: validation-gate
         run: |
           HOST_WORKSPACE="$PWD" docker compose --profile ci run --rm \
             -e BASE_REF="${BASE_REF}" \
@@ -127,7 +129,7 @@ jobs:
             backend/target/pit-reports/
             backend/target/surefire-reports/
             backend/target/failsafe-reports/
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 7
 
       - name: Upload frontend reports
@@ -138,7 +140,7 @@ jobs:
           path: |
             frontend/coverage/
             frontend/reports/
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 7
 
   system-test:
@@ -151,6 +153,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       # Dev keys are generated fresh every run, never committed (AUTH.md,
       # README.md). The mint script prints the token to stdout; we write it
@@ -214,7 +218,7 @@ jobs:
           path: |
             e2e/playwright-report/
             e2e/test-results/
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 7
 
       - name: Dump backend/frontend logs on failure

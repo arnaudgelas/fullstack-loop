@@ -241,6 +241,25 @@ if [[ "${STRICT}" == "1" && -n "${SKIP_STEPS}" ]]; then
   exit 2
 fi
 
+# Repository-owned orchestration is part of the product. Validate workflow
+# schema/expressions and embedded shell, and fully resolve Compose before any
+# expensive language build starts.
+if [[ -d "${WORKSPACE}/.github/workflows" ]]; then
+  run workflow-lint "GitHub Actions workflows (actionlint + ShellCheck)" "${WORKSPACE}" \
+    actionlint
+else
+  start_step workflow-lint "GitHub Actions workflows (actionlint + ShellCheck)"
+  unrunnable workflow-lint ".github/workflows does not exist"
+fi
+
+if [[ -f "${WORKSPACE}/docker-compose.yml" ]]; then
+  run compose-config "Docker Compose model validation" "${WORKSPACE}" \
+    docker compose config --quiet
+else
+  start_step compose-config "Docker Compose model validation"
+  unrunnable compose-config "docker-compose.yml does not exist"
+fi
+
 # ===========================================================================
 # 0. CONTRACT -- the OpenAPI document is the source of truth from which both
 #    the Angular client and the Spring provider interface are generated, so

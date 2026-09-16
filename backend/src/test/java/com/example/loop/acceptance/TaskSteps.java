@@ -28,18 +28,30 @@ public class TaskSteps {
         this.api = api;
     }
 
+    /** Clears the test store and verifies its empty starting state. */
     @Given("the task list is empty")
     public void theTaskListIsEmpty() {
         api.wipeStore();
         assertThat(api.listTasks()).isEmpty();
     }
 
+    /**
+     * Seeds a task through the public API.
+     *
+     * @param title task title
+     */
     @Given("a task {string} has already been captured")
     public void aTaskHasAlreadyBeenCaptured(String title) {
         assertThat(api.createTask(title).getStatusCode()).isEqualTo(HttpStatus.CREATED);
     }
 
+    /**
+     * Creates a task through the public API.
+     *
+     * @param title task title
+     */
     @When("I capture the task {string}")
+    @SuppressWarnings("PMD.LawOfDemeter") // ResponseEntity exposes headers through this API.
     public void iCaptureTheTask(String title) {
         ResponseEntity<Map<String, Object>> response = api.createTask(title);
 
@@ -47,17 +59,28 @@ public class TaskSteps {
         assertThat(response.getHeaders().getLocation()).isNotNull();
     }
 
+    /**
+     * Lists tasks and verifies the number returned.
+     *
+     * @param expected expected task count
+     */
     @Then("the task list shows {int} tasks")
     public void theTaskListShowsTasks(int expected) {
         listed = api.listTasks();
         assertThat(listed).hasSize(expected);
     }
 
+    /**
+     * Verifies the first returned task's title.
+     *
+     * @param title expected title
+     */
     @And("the first task is {string}")
     public void theFirstTaskIs(String title) {
         assertThat(listed.get(0)).containsEntry("title", title);
     }
 
+    /** Verifies that the first returned task is incomplete. */
     @And("that task is not completed")
     public void thatTaskIsNotCompleted() {
         assertThat(listed.get(0)).containsEntry("completed", false);

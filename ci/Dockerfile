@@ -36,13 +36,16 @@
 # dependent steps as an explicit SKIP rather than a pass.
 
 # ---- pinned versions (DOCKER-CONVENTIONS.md "do not drift") ----------------
+# Node 22's version and checksums are NOT an ARG here: they live in
+# versions/node.env, the single source of truth shared with e2e/Dockerfile's
+# own independent Node 22 download (see the toolchain stage below).
 ARG JDK_IMAGE=eclipse-temurin:21-jdk-noble
 ARG BUILDER_IMAGE=ubuntu:24.04
 ARG MAVEN_VERSION=3.9.11
 ARG MAVEN_SHA512=bcfe4fe305c962ace56ac7b5fc7a08b87d5abd8b7e89027ab251069faebee516b0ded8961445d6d91ec1985dfe30f8153268843c89aa392733d1a3ec956c9978
-ARG NODE_VERSION=22.23.2
 ARG DOCKER_VERSION=29.8.1
 ARG COMPOSE_VERSION=2.40.3
+ARG ACTIONLINT_VERSION=1.7.12
 
 # apt versions are pinned (QUALITY-GATES.md / hadolint DL3008). These are the
 # candidates in ubuntu:24.04 and eclipse-temurin:21-jdk-noble (both noble) at
@@ -86,17 +89,17 @@ FROM ${BUILDER_IMAGE} AS toolchain
 
 ARG MAVEN_VERSION
 ARG MAVEN_SHA512
-ARG NODE_VERSION
 ARG DOCKER_VERSION
 ARG COMPOSE_VERSION
+ARG ACTIONLINT_VERSION
 ARG TARGETARCH
 
-ARG NODE_SHA256_AMD64=d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307
-ARG NODE_SHA256_ARM64=fff4078c5def658577f92c88db7db3bc0072924bfb93fe52c1e744a54e94abb8
 ARG DOCKER_SHA256_AMD64=d8db66739d2e28d4933786d73e918d9be643a67fbd835db1bf740d650a259e70
 ARG DOCKER_SHA256_ARM64=667395fbffab52901b80181dfbb39ea76da2fbd7642c4fbddd24e42146b07b48
 ARG COMPOSE_SHA256_AMD64=dba9d98e1ba5bfe11d88c99b9bd32fc4a0624a30fafe68eea34d61a3e42fd372
 ARG COMPOSE_SHA256_ARM64=d26373b19e89160546d15407516cc59f453030d9bc5b43ba7faf16f7b4980137
+ARG ACTIONLINT_SHA256_AMD64=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+ARG ACTIONLINT_SHA256_ARM64=325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6
 ARG APT_CA_CERTIFICATES
 ARG APT_CURL
 ARG APT_XZ_UTILS
@@ -123,8 +126,13 @@ RUN set -eux; \
     tar -xzf /tmp/maven.tar.gz -C /opt/maven --strip-components=1; \
     rm -f /tmp/maven.tar.gz
 
-# Node 22 (official nodejs.org build, SHASUMS256-verified).
+# Node 22 (official nodejs.org build, SHASUMS256-verified). Version and
+# checksums come from versions/node.env, the single source of truth shared
+# with e2e/Dockerfile's own independent Node 22 download.
+COPY versions/node.env /tmp/node.env
+
 RUN set -eux; \
+    . /tmp/node.env; \
     case "${TARGETARCH}" in \
       amd64) arch=x64;   sha="${NODE_SHA256_AMD64}" ;; \
       arm64) arch=arm64; sha="${NODE_SHA256_ARM64}" ;; \
@@ -135,7 +143,7 @@ RUN set -eux; \
     echo "${sha}  /tmp/node.tar.xz" | sha256sum -c -; \
     mkdir -p /opt/node; \
     tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components=1; \
-    rm -f /tmp/node.tar.xz; \
+    rm -f /tmp/node.tar.xz /tmp/node.env; \
     rm -rf /opt/node/lib/node_modules/corepack /opt/node/share /opt/node/include
 
 # docker CLI (static build; the daemon binaries in the tarball are discarded)
@@ -158,6 +166,22 @@ RUN set -eux; \
     echo "${csha}  /opt/docker/cli-plugins/docker-compose" | sha256sum -c -; \
     chmod 0755 /opt/docker/cli-plugins/docker-compose
 
+# actionlint: GitHub workflow schema/expression validation. Its embedded shell
+# snippets are also checked because the final image carries ShellCheck below.
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) arch=amd64; sha="${ACTIONLINT_SHA256_AMD64}" ;; \
+      arm64) arch=arm64; sha="${ACTIONLINT_SHA256_ARM64}" ;; \
+      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/actionlint.tar.gz \
+      "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${arch}.tar.gz"; \
+    echo "${sha}  /tmp/actionlint.tar.gz" | sha256sum -c -; \
+    mkdir -p /opt/actionlint; \
+    tar -xzf /tmp/actionlint.tar.gz -C /opt/actionlint actionlint; \
+    chmod 0755 /opt/actionlint/actionlint; \
+    rm -f /tmp/actionlint.tar.gz
+
 # ---------------------------------------------------------------------------
 # Stage 2: the toolbox itself. Temurin 21 JDK (a JDK, not a JRE -- the gate
 # compiles and runs PIT/Stryker), plus the verified tools. No curl-download
@@ -168,6 +192,7 @@ FROM ${JDK_IMAGE} AS ci
 ARG MAVEN_VERSION
 ARG DOCKER_VERSION
 ARG COMPOSE_VERSION
+ARG ACTIONLINT_VERSION
 ARG APT_BASH
 ARG APT_CA_CERTIFICATES
 ARG APT_CURL
@@ -179,7 +204,7 @@ SHELL ["/bin/bash", "-Eeuo", "pipefail", "-c"]
 
 LABEL org.opencontainers.image.title="fullstack-loop-ci" \
       org.opencontainers.image.description="Fast Pull-Request Validation toolbox for the Fullstack Loop stack" \
-      org.opencontainers.image.source="https://example.com/fullstack-loop"
+      org.opencontainers.image.source="https://github.com/arnaudgelas/fullstack-loop"
 
 # git/curl/bash for the gate itself; the rest arrives from the toolchain stage.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -198,12 +223,13 @@ COPY --from=toolchain /opt/maven /opt/maven
 COPY --from=toolchain /opt/node /opt/node
 COPY --from=toolchain /opt/docker/bin/docker /usr/local/bin/docker
 COPY --from=toolchain /opt/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
+COPY --from=toolchain /opt/actionlint/actionlint /usr/local/bin/actionlint
+COPY --from=script-lint /bin/shellcheck /usr/local/bin/shellcheck
 
 ENV MAVEN_HOME=/opt/maven \
     NODE_HOME=/opt/node \
     PATH=/opt/maven/bin:/opt/node/bin:${JAVA_HOME}/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin \
     MAVEN_OPTS="-Xmx2g" \
-    MAVEN_CONFIG=/home/ci/.m2 \
     NPM_CONFIG_CACHE=/home/ci/.npm \
     CI=1 \
     WORKSPACE=/workspace \
@@ -212,7 +238,8 @@ ENV MAVEN_HOME=/opt/maven \
 # Non-root. uid/gid 1001 is fixed so a caller can chown mounted caches to match.
 # See the socket caveat in the header comment: grant docker access at run time
 # with --group-add, never by baking a root USER in here.
-RUN useradd --create-home --uid 1001 --user-group ci \
+RUN groupadd --gid 1001 ci \
+    && useradd --create-home --uid 1001 --gid 1001 ci \
     && mkdir -p /workspace /home/ci/.m2 /home/ci/.npm \
     && chown -R ci:ci /workspace /home/ci
 
@@ -224,7 +251,7 @@ COPY --from=script-lint /lint.stamp /usr/share/loop/ci-script-linted
 COPY --chown=ci:ci --chmod=0755 ci/pr-validation.sh /usr/local/bin/pr-validation.sh
 
 # A toolbox that runs to completion, not a service: no EXPOSE, no HEALTHCHECK.
-USER ci
+USER 1001:1001
 WORKDIR /workspace
 
 CMD ["/usr/local/bin/pr-validation.sh"]

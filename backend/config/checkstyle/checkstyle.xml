@@ -63,9 +63,15 @@
     <module name="JavadocType">
       <property name="scope" value="public"/>
     </module>
+    <module name="MissingJavadocType">
+      <property name="scope" value="public"/>
+    </module>
     <module name="JavadocMethod">
       <property name="accessModifiers" value="public"/>
       <property name="validateThrows" value="true"/>
+    </module>
+    <module name="MissingJavadocMethod">
+      <property name="scope" value="public"/>
     </module>
     <module name="SummaryJavadoc">
       <property name="forbiddenSummaryFragments"

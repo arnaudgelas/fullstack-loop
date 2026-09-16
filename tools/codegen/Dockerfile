@@ -48,15 +48,20 @@ FROM eclipse-temurin:21.0.8_9-jre-jammy AS jre
 FROM node:22.20.0-bookworm-slim AS redocly
 ENV npm_config_update_notifier=false
 WORKDIR /opt/redocly
+COPY tools/codegen/package.json tools/codegen/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
-    npm install --no-audit --no-fund --omit=dev @redocly/cli@2.4.0
+    npm ci --no-audit --no-fund --omit=dev
 
 # ---------------------------------------------------------------------- runtime
 FROM node:22.20.0-bookworm-slim AS runtime
 
+LABEL org.opencontainers.image.title="fullstack-loop-codegen" \
+      org.opencontainers.image.description="OpenAPI contract lint + codegen toolchain for the Fullstack Loop stack" \
+      org.opencontainers.image.source="https://github.com/arnaudgelas/fullstack-loop"
+
 ENV JAVA_HOME=/opt/java/openjdk \
     PATH=/opt/java/openjdk/bin:/opt/codegen/bin:$PATH \
-    HOME=/tmp \
+    HOME=/home/codegen \
     npm_config_update_notifier=false \
     REDOCLY_TELEMETRY=off \
     REDOCLY_SUPPRESS_UPDATE_NOTICE=true

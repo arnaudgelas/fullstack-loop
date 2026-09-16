@@ -109,7 +109,7 @@ validate_spec() {
     exit "${EX_GENERATOR}"
   fi
   printf '%s\n' "${output}"
-  if grep -qE '^(Errors|Warnings):' <<<"${output}"; then
+  if grep -Eiq '(^|[[:space:]])(errors?|warnings?)([[:space:]]*:|[[:space:]])' <<<"${output}"; then
     echo "fullstack-loop-codegen: spec validation reported problems; warnings are errors here" >&2
     exit "${EX_GENERATOR}"
   fi
@@ -161,7 +161,7 @@ run_generator() {
     exit "${EX_GENERATOR}"
   fi
   printf '%s\n' "${output}"
-  if grep -qE '^\[main\] (WARN|ERROR)' <<<"${output}"; then
+  if grep -Eiq '(^|[[:space:]])(warn(ing)?|errors?)([[:space:]:]|$)' <<<"${output}"; then
     rm -rf "${out}"
     echo "fullstack-loop-codegen: generator reported warnings for ${label}; warnings are errors here" >&2
     exit "${EX_GENERATOR}"

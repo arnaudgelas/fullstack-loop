@@ -59,9 +59,70 @@ COPY e2e/Dockerfile /lint/e2e.Dockerfile
 RUN hadolint --failure-threshold style /lint/e2e.Dockerfile && touch /lint.stamp
 
 # ---------------------------------------------------------------------------
-# Stage 1: dependencies. npm and its cache live only in this stage.
+# Stage 1: Node 22. DOCKER-CONVENTIONS.md pins Node 22 for this repository, but
+# the Playwright base image ships Node 24, so this stage builds a verified
+# Node 22 tarball from nodejs.org and it is used for BOTH `deps` (below) and
+# the runtime stage. node_modules must be installed under the exact Node build
+# that later executes them -- installing under the Playwright image's Node 24
+# and running under Node 22 at runtime would risk an ABI mismatch for any
+# native addon in the dependency tree. Pinned by version AND sha256, per
+# architecture.
+#
+# Version and checksums come from versions/node.env, the single source of
+# truth shared with ci/Dockerfile's own independent Node 22 download (its
+# base image is not Node-based either, for the same reason).
 # ---------------------------------------------------------------------------
-FROM ${PLAYWRIGHT_IMAGE} AS deps
+FROM ${RUNTIME_BASE} AS node
+
+ARG APT_CA_CERTIFICATES
+ARG APT_CURL
+ARG APT_XZ_UTILS
+ARG TARGETARCH
+
+SHELL ["/bin/bash", "-Eeuo", "pipefail", "-c"]
+
+COPY versions/node.env /tmp/node.env
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends \
+         "ca-certificates=${APT_CA_CERTIFICATES}" \
+         "curl=${APT_CURL}" \
+         "xz-utils=${APT_XZ_UTILS}" \
+    && . /tmp/node.env \
+    && case "${TARGETARCH}" in \
+         amd64) arch=x64;   sha="${NODE_SHA256_AMD64}" ;; \
+         arm64) arch=arm64; sha="${NODE_SHA256_ARM64}" ;; \
+         *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL -o /tmp/node.tar.xz \
+         "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${arch}.tar.xz" \
+    && echo "${sha}  /tmp/node.tar.xz" | sha256sum -c - \
+    && mkdir -p /opt/node \
+    && tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components=1 \
+    && rm -f /tmp/node.env \
+    && rm -f /tmp/node.tar.xz \
+    && rm -rf /opt/node/lib/node_modules/corepack /opt/node/share /opt/node/include
+
+# ---------------------------------------------------------------------------
+# Stage 2: dependencies. npm, its cache, and the registry-facing ca-certificates
+# live only in this stage. Built on the Node 22 from Stage 1, NOT on the
+# Playwright image, so the installed node_modules match the ABI of the Node
+# binary the runtime stage actually executes them with.
+# ---------------------------------------------------------------------------
+FROM ${RUNTIME_BASE} AS deps
+
+ARG APT_CA_CERTIFICATES
+
+COPY --from=node /opt/node /opt/node
+ENV PATH=/opt/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends \
+         "ca-certificates=${APT_CA_CERTIFICATES}"
 
 WORKDIR /e2e
 
@@ -74,7 +135,7 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     npm ci --no-audit --no-fund
 
 # ---------------------------------------------------------------------------
-# Stage 2: quality gates. Formatting, type-aware lint and the strict type
+# Stage 3: quality gates. Formatting, type-aware lint and the strict type
 # check, all fatal. This stage produces nothing the runtime consumes; it exists
 # so that `docker build` fails on a warning.
 # ---------------------------------------------------------------------------
@@ -90,7 +151,7 @@ RUN npx prettier --check . \
     && touch /verify.stamp
 
 # ---------------------------------------------------------------------------
-# Stage 3: browser bundle. Only `chromium` is configured as a Playwright
+# Stage 4: browser bundle. Only `chromium` is configured as a Playwright
 # project, so firefox and webkit (~1.5 GB) are dropped HERE, in the stage the
 # runtime copies FROM. Deleting them in the final stage would not shrink the
 # image at all -- the bytes would still ship in the inherited base layer.
@@ -100,55 +161,26 @@ FROM ${PLAYWRIGHT_IMAGE} AS browsers
 RUN rm -rf /ms-playwright/firefox-* /ms-playwright/webkit-*
 
 # ---------------------------------------------------------------------------
-# Stage 4: Node 22. DOCKER-CONVENTIONS.md pins Node 22 for this repository, but
-# the Playwright base image ships Node 24, so the runtime gets its own verified
-# Node 22 tarball from nodejs.org rather than inheriting whatever the browser
-# image happens to carry. Pinned by version AND sha256, per architecture.
-# ---------------------------------------------------------------------------
-FROM ${RUNTIME_BASE} AS node
-
-ARG APT_CA_CERTIFICATES
-ARG APT_CURL
-ARG APT_XZ_UTILS
-ARG NODE_VERSION=22.23.2
-ARG NODE_SHA256_AMD64=d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307
-ARG NODE_SHA256_ARM64=fff4078c5def658577f92c88db7db3bc0072924bfb93fe52c1e744a54e94abb8
-ARG TARGETARCH
-
-SHELL ["/bin/bash", "-Eeuo", "pipefail", "-c"]
-
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
-    apt-get update \
-    && apt-get install -y --no-install-recommends \
-         "ca-certificates=${APT_CA_CERTIFICATES}" \
-         "curl=${APT_CURL}" \
-         "xz-utils=${APT_XZ_UTILS}" \
-    && case "${TARGETARCH}" in \
-         amd64) arch=x64;   sha="${NODE_SHA256_AMD64}" ;; \
-         arm64) arch=arm64; sha="${NODE_SHA256_ARM64}" ;; \
-         *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
-       esac \
-    && curl -fsSL -o /tmp/node.tar.xz \
-         "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${arch}.tar.xz" \
-    && echo "${sha}  /tmp/node.tar.xz" | sha256sum -c - \
-    && mkdir -p /opt/node \
-    && tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components=1 \
-    && rm -f /tmp/node.tar.xz \
-    && rm -rf /opt/node/lib/node_modules/corepack /opt/node/share /opt/node/include
-
-# ---------------------------------------------------------------------------
 # Stage 5: runtime. A bare Ubuntu of the same release as the Playwright base
 # (noble/24.04, so the copied glibc-linked chromium binaries match), plus the
-# verified Node 22, the chromium bundle only, and the shared libraries chromium
-# needs -- installed by Playwright's own `install-deps`, so the library list is
-# pinned by the @playwright/test version rather than hand-maintained here.
-# No npm cache, no apt lists, no repository sources beyond the test files.
+# verified Node 22 from Stage 1, the chromium bundle only, and the shared
+# libraries chromium needs -- installed by Playwright's own `install-deps`, so
+# the library list is pinned by the @playwright/test version rather than
+# hand-maintained here. No npm cache, no apt lists, no repository sources
+# beyond the test files.
 # ---------------------------------------------------------------------------
 FROM ${RUNTIME_BASE} AS runtime
 
 ARG APT_CA_CERTIFICATES
 
+LABEL org.opencontainers.image.title="fullstack-loop-e2e" \
+      org.opencontainers.image.description="Playwright deployment acceptance suite for Fullstack Loop" \
+      org.opencontainers.image.source="https://github.com/arnaudgelas/fullstack-loop"
+
+# DL3064 flags the LOOP_JWT_PRIVATE_KEY_PATH var-name pattern below, but it is
+# a filesystem path, not a secret value; the key itself is bind-mounted at run
+# time and never baked in.
+# hadolint ignore=DL3064
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     CI=1 \
@@ -179,7 +211,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
          "ca-certificates=${APT_CA_CERTIFICATES}" \
     && npx playwright install-deps chromium \
     && rm -rf /var/log/apt /tmp/* \
-    && useradd --create-home --uid 1001 --user-group pwuser \
+    && groupadd --gid 1001 pwuser \
+    && useradd --create-home --uid 1001 --gid 1001 pwuser \
     && mkdir -p /e2e/playwright-report /e2e/test-results \
     && chown -R pwuser:pwuser /e2e
 
@@ -189,7 +222,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 COPY --from=verify /verify.stamp /usr/share/loop/e2e-verified
 COPY --from=dockerfile-lint /lint.stamp /usr/share/loop/e2e-dockerfile-linted
 
-USER pwuser
+USER 1001:1001
 
 # Default: run the whole suite and exit with its status. Overridable, e.g.
 #   docker run --rm fullstack-loop-e2e npx playwright test --list

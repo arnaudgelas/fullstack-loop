@@ -1,6 +1,7 @@
 /// <reference types="vitest" />
 import angular from '@analogjs/vite-plugin-angular';
 import { defineConfig } from 'vite';
+import { PACT_SPECS } from './vitest.rings';
 
 /**
  * PACT CONSUMER ring of the development loop. Kept in its own config (and out of the image
@@ -15,7 +16,7 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['src/test-setup.ts'],
-    include: ['test/pact/**/*.pact.spec.ts'],
+    include: PACT_SPECS,
     allowOnly: false,
     passWithNoTests: false,
     testTimeout: 60_000,

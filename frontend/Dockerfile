@@ -91,7 +91,7 @@ FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 
 LABEL org.opencontainers.image.title="fullstack-loop-frontend" \
       org.opencontainers.image.description="Angular consumer of the Fullstack Loop Task API" \
-      org.opencontainers.image.source="https://example.com/fullstack-loop"
+      org.opencontainers.image.source="https://github.com/arnaudgelas/fullstack-loop"
 
 # Rendered to /etc/nginx/conf.d/default.conf by the base image entrypoint.
 COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
@@ -105,12 +105,16 @@ COPY --from=dockerfile-lint /lint.stamp /usr/share/loop/frontend-dockerfile-lint
 # FULLSTACK_LOOP_FRONTEND_TOKEN is EMPTY here on purpose: AUTH.md requires the token to
 # be supplied at runtime and never baked into the image or the bundle. With no
 # token the app loads, calls the API unauthenticated and renders its 401 state.
+# DL3064 flags the FULLSTACK_LOOP_FRONTEND_TOKEN var-name pattern below, not a
+# value: it is deliberately empty, per the comment above.
+# hadolint ignore=DL3064
 ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1 \
     BACKEND_ORIGIN=http://backend:8080 \
     FULLSTACK_LOOP_API_BASE_PATH="" \
     FULLSTACK_LOOP_FRONTEND_TOKEN=""
 
-USER nginx
+# Numeric uid: nginx-unprivileged's built-in `nginx` user is uid 101.
+USER 101
 
 EXPOSE 8080
 

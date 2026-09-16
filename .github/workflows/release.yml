@@ -32,6 +32,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate:
+    name: Full release validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve Docker socket group
+        run: echo "DOCKER_SOCKET_GID=$(stat -c '%g' /var/run/docker.sock)" >> "$GITHUB_ENV"
+
+      - name: Build validation toolchain
+        run: docker compose build codegen ci
+
+      - name: Run the complete gate with full mutation scope
+        run: |
+          docker compose --profile ci run --rm \
+            -e RUN_MUTATION=1 \
+            -e MUTATION_SCOPE=all \
+            ci
+
   # ---------------------------------------------------------------------
   # 1. Build the two production images once, system-test them exactly as
   #    built, then save them to a tarball for the publish job. contents:
@@ -40,7 +66,8 @@ jobs:
   # ---------------------------------------------------------------------
   build-and-test:
     name: Build and system-test
-    runs-on: ubuntu-latest
+    needs: validate
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -54,6 +81,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       # GHCR requires a lowercase repository path. Computed once here and
       # threaded through as job outputs so publish/attest use the identical
@@ -100,6 +128,9 @@ jobs:
       - name: Build e2e image
         run: docker compose build e2e
 
+      - name: Prepare Playwright artifact directories
+        run: mkdir -p e2e/playwright-report e2e/test-results
+
       - name: Run the browser acceptance suite (e2e profile)
         run: docker compose --profile e2e run --rm e2e
 
@@ -111,7 +142,7 @@ jobs:
           path: |
             e2e/playwright-report/
             e2e/test-results/
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 7
 
       # Unconditional, per DOCKER-CONVENTIONS.md / the review requirement:
@@ -152,7 +183,7 @@ jobs:
   publish:
     name: Publish to GHCR
     needs: build-and-test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -200,7 +231,7 @@ jobs:
   attest:
     name: Attest build provenance
     needs: [build-and-test, publish]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read

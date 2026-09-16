@@ -1,0 +1,12 @@
+{
+  "name": "fullstack-loop-codegen-tooling",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "packageManager": "npm@10.9.8",
+  "dependencies": {
+    "@redocly/cli": "2.4.0"
+  }
+}

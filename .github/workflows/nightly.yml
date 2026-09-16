@@ -36,7 +36,7 @@ concurrency:
 
 jobs:
   nightly-full-gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Full --no-cache rebuild of 5 images + full-scope mutation testing +
     # the full e2e cycle is meaningfully slower than the PR gate.
     timeout-minutes: 240
@@ -49,6 +49,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Generate a development JWT keypair
         run: ./scripts/gen-dev-keys.sh
@@ -84,8 +85,6 @@ jobs:
       # contract gates start sibling containers on the host daemon and need
       # the real host checkout path (see ci/pr-validation.sh's header comment).
       - name: Full-strength gate (mutation scope = all)
-        id: gate
-        continue-on-error: true
         run: |
           docker compose --profile ci run --rm \
             -e RUN_MUTATION=1 \
@@ -93,11 +92,9 @@ jobs:
             ci
 
       - name: Start the stack (mongo + backend + frontend)
-        if: steps.gate.outcome == 'success'
         run: docker compose up -d
 
       - name: Wait for backend and frontend health
-        if: steps.gate.outcome == 'success'
         run: |
           timeout 120 bash -c 'until curl -fsS http://localhost:8080/actuator/health >/dev/null; do sleep 3; done'
           timeout 120 bash -c 'until curl -fsS http://localhost:4200/healthz >/dev/null; do sleep 3; done'
@@ -105,10 +102,10 @@ jobs:
       # Full rebuild-and-system-test, not just the unit/integration gate: run
       # the browser acceptance profile against the freshly built, freshly
       # composed stack.
+      - name: Prepare Playwright artifact directories
+        run: mkdir -p e2e/playwright-report e2e/test-results
+
       - name: Run the browser acceptance suite (e2e profile)
-        id: system_test
-        if: steps.gate.outcome == 'success'
-        continue-on-error: true
         run: docker compose --profile e2e run --rm e2e
 
       # Loud on failure: every report the PR-validation gate produces, using
@@ -119,7 +116,7 @@ jobs:
       # source of truth other workflows (pr-validate.yml) should match rather
       # than diverging from.
       - name: Upload every report (only runs if a stage above failed)
-        if: steps.gate.outcome == 'failure' || steps.system_test.outcome == 'failure'
+        if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: nightly-failure-reports
@@ -132,16 +129,9 @@ jobs:
             frontend/reports/mutation
             e2e/playwright-report
             e2e/test-results
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
 
       - name: Tear down the stack
         if: always()
         run: docker compose down -v
-
-      - name: Fail the job if any stage failed
-        if: steps.gate.outcome == 'failure' || steps.system_test.outcome == 'failure'
-        run: |
-          echo "gate outcome: ${{ steps.gate.outcome }}" >&2
-          echo "system-test outcome: ${{ steps.system_test.outcome }}" >&2
-          exit 1

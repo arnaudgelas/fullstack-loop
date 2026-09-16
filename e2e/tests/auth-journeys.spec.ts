@@ -37,6 +37,10 @@ for (const { name, token } of cases) {
       /Failed to load resource: the server responded with a status of 401/,
       'the browser logs the deliberate 401 that this journey provokes',
     );
+    consoleGuard.allow(
+      /response\.401: GET .*\/api\/tasks$/,
+      'the provider response is the deliberate 401 asserted by this journey',
+    );
 
     await installRuntimeConfig(page, await token());
 

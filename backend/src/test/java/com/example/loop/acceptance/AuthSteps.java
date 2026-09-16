@@ -23,12 +23,19 @@ public class AuthSteps {
         this.api = api;
     }
 
+    /** Calls the task API without authentication. */
     @When("I call the API without a token")
     public void iCallTheApiWithoutAToken() {
         response = api.listTasksAnonymously();
     }
 
+    /**
+     * Verifies that the anonymous call returned an RFC 9457-style problem.
+     *
+     * @param expectedStatus expected HTTP status
+     */
     @Then("the API refuses me with a {int} and a problem document")
+    @SuppressWarnings("PMD.LawOfDemeter") // ResponseEntity exposes status through this API.
     public void theApiRefusesMe(int expectedStatus) {
         assertThat(response)
                 .as("the request step must run before the assertion step")

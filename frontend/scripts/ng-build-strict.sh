@@ -12,7 +12,7 @@ output_file="$(mktemp)"
 trap 'rm -f "${output_file}"' EXIT
 
 set +e
-npx ng build --configuration production 2>&1 | tee "${output_file}"
+npx --no-install ng build --configuration production 2>&1 | tee "${output_file}"
 status="${PIPESTATUS[0]}"
 set -e
 

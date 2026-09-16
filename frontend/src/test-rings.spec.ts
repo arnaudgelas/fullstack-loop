@@ -6,6 +6,7 @@ import {
   INNER_RING_SPECS,
   MIDDLE_RING_SOURCES,
   MIDDLE_RING_SPECS,
+  PACT_SPECS,
 } from '../vitest.rings';
 
 const projectRoot = resolve(import.meta.dirname, '..');
@@ -39,8 +40,11 @@ function filesUnder(directory: string, suffix: string): string[] {
  * These assertions are what keep that true as files are added.
  */
 describe('ring membership', () => {
-  const allSpecs = filesUnder(resolve(projectRoot, 'src'), '.spec.ts');
-  const classifiedSpecs = [...INNER_RING_SPECS, ...MIDDLE_RING_SPECS].sort((a, b) =>
+  const allSpecs = [
+    ...filesUnder(resolve(projectRoot, 'src'), '.spec.ts'),
+    ...filesUnder(resolve(projectRoot, 'test'), '.spec.ts'),
+  ].sort((a, b) => a.localeCompare(b));
+  const classifiedSpecs = [...INNER_RING_SPECS, ...MIDDLE_RING_SPECS, ...PACT_SPECS].sort((a, b) =>
     a.localeCompare(b),
   );
 
@@ -48,9 +52,9 @@ describe('ring membership', () => {
     expect(classifiedSpecs).toEqual(allSpecs);
   });
 
-  it('never puts the same spec in both rings', () => {
-    const overlap = INNER_RING_SPECS.filter((spec) => MIDDLE_RING_SPECS.includes(spec));
-    expect(overlap).toEqual([]);
+  it('never puts the same spec in more than one ring', () => {
+    const allClassifications = [...INNER_RING_SPECS, ...MIDDLE_RING_SPECS, ...PACT_SPECS];
+    expect(new Set(allClassifications).size).toBe(allClassifications.length);
   });
 
   it('never makes two rings responsible for the same source file', () => {

@@ -32,6 +32,7 @@ class ScopeAuthorizationIT extends AuthTestSupport {
 
     @Test
     @DisplayName("case 6 of 6 — a valid token without tasks:write is 403 with a Problem body")
+    @SuppressWarnings("PMD.LawOfDemeter") // ResponseEntity exposes headers through this API.
     void missingWriteScopeIsForbidden() {
         ResponseEntity<Map<String, Object>> response = post(JwtTestTokens.valid(JwtTestTokens.SCOPE_READ));
 

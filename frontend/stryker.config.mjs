@@ -16,9 +16,10 @@ export default {
   packageManager: 'npm',
   testRunner: 'vitest',
   vitest: { configFile: 'vitest.config.ts' },
-  reporters: ['clear-text', 'progress'],
+  reporters: ['clear-text', 'progress', 'html'],
   mutate: [
     'src/app/tasks/task-logic.ts',
+    'src/app/tasks/task-list.ts',
     'src/app/auth/auth.interceptor.ts',
     'src/app/auth/token-provider.ts',
     'src/app/runtime-config.ts',

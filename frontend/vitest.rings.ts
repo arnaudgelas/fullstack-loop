@@ -38,6 +38,9 @@ export const MIDDLE_RING_SOURCES = [
   'src/app/auth/token-provider.ts',
 ];
 
+/** Consumer-contract ring — executed separately because Pact starts a mock server. */
+export const PACT_SPECS = ['test/pact/tasks.pact.spec.ts'];
+
 /**
  * Coverage exclusions that apply to every run.
  *

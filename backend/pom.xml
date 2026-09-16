@@ -16,14 +16,20 @@
   <version>1.0.0</version>
   <name>fullstack-loop-backend</name>
   <description>Spring Boot provider for the Fullstack Loop Task API</description>
+  <url>https://github.com/arnaudgelas/fullstack-loop</url>
 
   <properties>
     <java.version>21</java.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.build.outputTimestamp>2026-01-01T00:00:00Z</project.build.outputTimestamp>
+    <!-- Defined empty so Surefire's late @{argLine} replacement is valid even
+         when JaCoCo is deliberately skipped by a packaging-only build. -->
+    <argLine></argLine>
 
     <openapi-generator.version>7.16.0</openapi-generator.version>
     <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
     <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>
+    <maven-site-plugin.version>3.22.0</maven-site-plugin.version>
     <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
     <pitest.version>1.20.5</pitest.version>
     <pitest-junit5-plugin.version>1.2.3</pitest-junit5-plugin.version>
@@ -494,6 +500,7 @@
           <includeTests>true</includeTests>
           <failOnViolation>true</failOnViolation>
           <printFailingErrors>true</printFailingErrors>
+          <linkXRef>false</linkXRef>
           <minimumTokens>60</minimumTokens>
           <excludeRoots>
             <excludeRoot>${project.build.directory}/generated-sources</excludeRoot>
@@ -777,6 +784,14 @@
         </configuration>
       </plugin>
 
+      <!-- Pin the lifecycle's otherwise implicit site plugin. Enforcer's
+           requirePluginVersions rule makes an implicit version a hard error. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-site-plugin</artifactId>
+        <version>${maven-site-plugin.version}</version>
+      </plugin>
+
       <!--
         Ring split — this is what lets the image build run tests without a
         Docker daemon inside it.
@@ -798,6 +813,10 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
+          <!-- Mockito must be attached explicitly; dynamic agent attachment is
+               deprecated by the JDK and emits a warning, which this build treats
+               as a future failure. @{argLine} preserves JaCoCo's late value. -->
+          <argLine>@{argLine} -javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar</argLine>
           <excludedGroups>requires-docker</excludedGroups>
           <!-- A -Dtest=... that matches nothing is a mistake, not a pass. -->
           <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
@@ -819,6 +838,7 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
         <configuration>
+          <argLine>@{argLine} -javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar</argLine>
           <includes>
             <include>**/*IT.java</include>
           </includes>

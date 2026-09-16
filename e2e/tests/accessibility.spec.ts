@@ -36,6 +36,10 @@ async function scan(page: Page): Promise<AxeResults> {
   return new AxeBuilder({ page }).analyze();
 }
 
+function unresolvedFindings(results: AxeResults): readonly Result[] {
+  return [...results.violations, ...results.incomplete];
+}
+
 test('the authenticated task page has no accessibility violations', async ({ page }, testInfo) => {
   await installRuntimeConfig(page, await mintToken());
   await page.goto('/');
@@ -43,17 +47,24 @@ test('the authenticated task page has no accessibility violations', async ({ pag
 
   const results = await scan(page);
   await testInfo.attach('axe-authenticated.json', {
-    body: JSON.stringify(results.violations, null, 2),
+    body: JSON.stringify(unresolvedFindings(results), null, 2),
     contentType: 'application/json',
   });
 
-  expect(describeViolations(results.violations), 'axe violations on the task page').toEqual([]);
+  expect(
+    describeViolations(unresolvedFindings(results)),
+    'axe violations or incomplete/manual-review findings on the task page',
+  ).toEqual([]);
 });
 
 test('the 401 state has no accessibility violations', async ({ page, consoleGuard }, testInfo) => {
   consoleGuard.allow(
     /Failed to load resource: the server responded with a status of 401/,
     'the browser logs the deliberate 401 this scan needs in order to reach the error state',
+  );
+  consoleGuard.allow(
+    /response\.401: GET .*\/api\/tasks$/,
+    'the provider response is the deliberate 401 required to render this state',
   );
 
   await installRuntimeConfig(page, await mintExpiredToken());
@@ -62,9 +73,12 @@ test('the 401 state has no accessibility violations', async ({ page, consoleGuar
 
   const results = await scan(page);
   await testInfo.attach('axe-unauthorized.json', {
-    body: JSON.stringify(results.violations, null, 2),
+    body: JSON.stringify(unresolvedFindings(results), null, 2),
     contentType: 'application/json',
   });
 
-  expect(describeViolations(results.violations), 'axe violations on the 401 state').toEqual([]);
+  expect(
+    describeViolations(unresolvedFindings(results)),
+    'axe violations or incomplete/manual-review findings on the 401 state',
+  ).toEqual([]);
 });

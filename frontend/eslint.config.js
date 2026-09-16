@@ -12,9 +12,11 @@ import tseslint from 'typescript-eslint';
 export default tseslint.config(
   {
     ignores: [
-      // Generated from openapi/openapi.yaml by openapi-generator. Never
-      // hand-edited, so never linted (QUALITY-GATES.md "Contract / codegen"
-      // explicitly permits excluding the generated directory).
+      // openapi-generator 7.16 emits code that compiles under this project's
+      // strict TypeScript settings but violates numerous type-aware stylistic
+      // and safety lint rules. It is generated, never hand-edited, and remains
+      // gated by strict tsc compilation. Closing this generator-template gap is
+      // tracked as an accepted deviation; do not broaden this ignore.
       'src/app/api/generated/**',
       'dist/**',
       'out-tsc/**',
@@ -26,6 +28,11 @@ export default tseslint.config(
     ],
   },
   {
+    linterOptions: {
+      reportUnusedDisableDirectives: 'error',
+    },
+  },
+  {
     files: ['**/*.spec.ts'],
     rules: {
       // Vitest otherwise reports skipped/todo tests as a successful run. CI
@@ -34,7 +41,7 @@ export default tseslint.config(
         'error',
         {
           selector:
-            "CallExpression[callee.type='MemberExpression'][callee.object.name=/^(describe|it|test)$/][callee.property.name=/^(only|skip|skipIf|todo)$/]",
+            "CallExpression[callee.type='MemberExpression'][callee.property.name=/^(only|skip|skipIf|runIf|todo)$/]",
           message: 'Focused, skipped, conditional, and todo tests are forbidden.',
         },
         {
@@ -102,10 +109,11 @@ export default tseslint.config(
     extends: [...angular.configs.templateRecommended, ...angular.configs.templateAccessibility],
   },
   {
-    // The flat config itself: plain JS, outside every tsconfig, so type-aware
-    // rules cannot apply to it.
-    files: ['eslint.config.js'],
-    extends: [tseslint.configs.disableTypeChecked],
+    // Executable configuration is code too. These files carry // @ts-check;
+    // ESLint's recommended rules provide the runtime-JavaScript gate while
+    // TypeScript sources above retain the full type-aware presets.
+    files: ['**/*.js', '**/*.mjs'],
+    extends: [eslint.configs.recommended],
   },
   prettierConfig,
 );

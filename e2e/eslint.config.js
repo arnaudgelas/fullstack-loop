@@ -11,12 +11,16 @@ import js from '@eslint/js';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import prettier from 'eslint-config-prettier/flat';
 import playwright from 'eslint-plugin-playwright';
+import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig([
-  globalIgnores(['node_modules/**', 'playwright-report/**', 'test-results/**', 'fixtures/**']),
+  globalIgnores(['node_modules/**', 'playwright-report/**', 'test-results/**']),
   {
-    files: ['**/*.ts', '**/*.js'],
+    linterOptions: { reportUnusedDisableDirectives: 'error' },
+  },
+  {
+    files: ['**/*.ts'],
     extends: [
       js.configs.recommended,
       tseslint.configs.strictTypeChecked,
@@ -24,14 +28,17 @@ export default defineConfig([
     ],
     languageOptions: {
       parserOptions: {
-        // This config file itself is not in tsconfig's `include` (it is not
-        // part of the test program), so the project service is told explicitly
-        // to type it with the default project rather than silently dropping
-        // type-aware linting for it.
-        projectService: { allowDefaultProject: ['eslint.config.js'] },
+        projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
+  },
+  {
+    // Executable JS/MJS configuration and fixture-server code is still code;
+    // lint it with ESLint's full recommended runtime rules.
+    files: ['**/*.js', '**/*.mjs'],
+    extends: [js.configs.recommended],
+    languageOptions: { globals: globals.node },
   },
   {
     files: ['tests/**/*.spec.ts'],
@@ -42,6 +49,14 @@ export default defineConfig([
       'playwright/expect-expect': 'error',
       'playwright/no-conditional-in-test': 'error',
       'playwright/no-skipped-test': 'error',
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.type='MemberExpression'][callee.property.name=/^(only|skip|fixme|fail)$/]",
+          message: 'Focused, skipped, fixme, and expected-failure tests are forbidden.',
+        },
+      ],
     },
   },
   // Must stay last: turns off the formatting rules Prettier owns so the two

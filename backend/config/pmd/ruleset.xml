@@ -18,13 +18,9 @@
   <description>Every PMD category, minus rules another tool already owns.</description>
 
   <rule ref="category/java/bestpractices.xml">
-    <!-- JUnit 5 assertions carry a @DisplayName instead of a message string. -->
-    <exclude name="JUnitAssertionsShouldIncludeMessage"/>
     <!-- AssertJ assertions are not recognised as assertions by this rule. -->
     <exclude name="UnitTestContainsTooManyAsserts"/>
     <exclude name="UnitTestShouldIncludeAssert"/>
-    <!-- Checkstyle owns Javadoc, with more precise control. -->
-    <exclude name="UnitTestShouldUseTestAnnotation"/>
   </rule>
 
   <rule ref="category/java/codestyle.xml">
@@ -54,15 +50,12 @@
   </rule>
 
   <rule ref="category/java/design.xml">
-    <!-- Checkstyle already enforces a tighter, configured complexity budget. -->
-    <exclude name="LawOfDemeter"/>
+    <!-- This rule is inert unless a project-specific allowed-packages policy is
+         supplied; enabling it unconfigured makes PMD discard it with a warning. -->
     <exclude name="LoosePackageCoupling"/>
   </rule>
 
-  <rule ref="category/java/errorprone.xml">
-    <!-- Boot's own beans are non-final by design; Spring proxies them. -->
-    <exclude name="AvoidLiteralsInIfCondition"/>
-  </rule>
+  <rule ref="category/java/errorprone.xml"/>
 
   <rule ref="category/java/multithreading.xml"/>
   <rule ref="category/java/performance.xml"/>

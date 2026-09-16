@@ -28,12 +28,24 @@ export const test = base.extend<{ consoleGuard: ConsoleGuard }>({
       const observed: string[] = [];
 
       page.on('console', (message) => {
-        if (message.type() === 'error') {
-          observed.push(`console.error: ${message.text()}`);
+        if (message.type() === 'error' || message.type() === 'warning') {
+          observed.push(`console.${message.type()}: ${message.text()}`);
         }
       });
       page.on('pageerror', (error) => {
         observed.push(`pageerror: ${error.message}`);
+      });
+      page.on('requestfailed', (request) => {
+        observed.push(
+          `requestfailed: ${request.method()} ${request.url()} -- ${request.failure()?.errorText ?? 'unknown failure'}`,
+        );
+      });
+      page.on('response', (response) => {
+        if (response.status() >= 400) {
+          observed.push(
+            `response.${response.status().toString()}: ${response.request().method()} ${response.url()}`,
+          );
+        }
       });
 
       await use({
@@ -42,10 +54,20 @@ export const test = base.extend<{ consoleGuard: ConsoleGuard }>({
         },
       });
 
-      const unexpected = observed.filter(
-        (entry) => !allowances.some((allowance) => allowance.pattern.test(entry)),
-      );
+      const unusedAllowances = [...allowances];
+      const unexpected = observed.filter((entry) => {
+        const index = unusedAllowances.findIndex((allowance) => allowance.pattern.test(entry));
+        if (index < 0) {
+          return true;
+        }
+        unusedAllowances.splice(index, 1);
+        return false;
+      });
       expect(unexpected, 'unexpected browser console errors / page errors').toEqual([]);
+      expect(
+        unusedAllowances.map(({ pattern, reason }) => `${pattern.toString()}: ${reason}`),
+        'declared browser-error allowances that were never exercised',
+      ).toEqual([]);
     },
     { auto: true },
   ],
