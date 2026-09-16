@@ -48,6 +48,11 @@ class TaskTest {
     @Test
     @DisplayName("a title longer than 200 characters is rejected")
     void tooLongTitleRejected() {
+        // LawOfDemeter flags reading a public static final constant the same
+        // way it flags chaining through an object graph; the two are not the
+        // same thing, and there is no less-coupled way to reference the
+        // domain's own published boundary. Narrow, single-line suppression.
+        @SuppressWarnings("PMD.LawOfDemeter")
         String tooLong = "x".repeat(Task.MAX_TITLE_LENGTH + 1);
 
         assertThatThrownBy(() -> Task.pending(tooLong, NOW))
