@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<!--
+  Strict PMD ruleset for backend/.
+
+  This pulls in whole PMD categories rather than a hand-picked subset, so new
+  rules arrive with PMD upgrades instead of being silently missed. The few
+  exclusions below are structural conflicts with the rest of the toolchain
+  (Spotless owns layout; Checkstyle owns Javadoc; the design deliberately uses
+  constructor injection and small classes), never "this rule found a bug we did
+  not want to fix". Any genuine exception is suppressed inline at its use site.
+-->
+<ruleset name="fullstack-loop-backend"
+         xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0
+                             https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+
+  <description>Every PMD category, minus rules another tool already owns.</description>
+
+  <rule ref="category/java/bestpractices.xml">
+    <!-- JUnit 5 assertions carry a @DisplayName instead of a message string. -->
+    <exclude name="JUnitAssertionsShouldIncludeMessage"/>
+    <!-- AssertJ assertions are not recognised as assertions by this rule. -->
+    <exclude name="UnitTestContainsTooManyAsserts"/>
+    <exclude name="UnitTestShouldIncludeAssert"/>
+    <!-- Checkstyle owns Javadoc, with more precise control. -->
+    <exclude name="UnitTestShouldUseTestAnnotation"/>
+  </rule>
+
+  <rule ref="category/java/codestyle.xml">
+    <!-- Spotless / palantir-java-format is the single authority on layout. -->
+    <exclude name="MethodArgumentCouldBeFinal"/>
+    <exclude name="LocalVariableCouldBeFinal"/>
+    <exclude name="OnlyOneReturn"/>
+    <exclude name="AtLeastOneConstructor"/>
+    <exclude name="CommentDefaultAccessModifier"/>
+    <!-- Long, descriptive test method names are the point. -->
+    <exclude name="LongVariable"/>
+    <exclude name="ShortVariable"/>
+    <exclude name="ShortClassName"/>
+    <!-- Reconfigured below for Maven's *IT integration-test convention. -->
+    <exclude name="ClassNamingConventions"/>
+  </rule>
+
+  <!--
+    Same rule, not a weaker one: the default pattern does not know that Maven
+    Failsafe requires integration tests to be named *IT.
+  -->
+  <rule ref="category/java/codestyle.xml/ClassNamingConventions">
+    <properties>
+      <property name="testClassPattern"
+                value="^Test.*$|^[A-Z][a-zA-Z0-9]*Test(s|Case)?$|^[A-Z][a-zA-Z0-9]*IT$"/>
+    </properties>
+  </rule>
+
+  <rule ref="category/java/design.xml">
+    <!-- Checkstyle already enforces a tighter, configured complexity budget. -->
+    <exclude name="LawOfDemeter"/>
+    <exclude name="LoosePackageCoupling"/>
+  </rule>
+
+  <rule ref="category/java/errorprone.xml">
+    <!-- Boot's own beans are non-final by design; Spring proxies them. -->
+    <exclude name="AvoidLiteralsInIfCondition"/>
+  </rule>
+
+  <rule ref="category/java/multithreading.xml"/>
+  <rule ref="category/java/performance.xml"/>
+  <rule ref="category/java/security.xml"/>
+</ruleset>

@@ -1,0 +1,222 @@
+name: Release
+
+# Tag-triggered release: build the two images that actually run in
+# production (backend, frontend) once, system-test the EXACT images just
+# built, push those exact digests to GHCR, and attest them. The three stages
+# are separate jobs so each gets only the GITHUB_TOKEN permissions it needs --
+# but "separate jobs" must not mean "rebuild between jobs", because that would
+# test one artifact and ship a different one. The build-and-test job instead
+# `docker save`s the tagged images it already built and tested and hands the
+# tarball to the publish job as a workflow artifact; publish only `docker
+# load`s + pushes it, it never calls `docker build` again.
+#
+# codegen/e2e/ci are dev/CI tooling images, not things that run in
+# production, so they are not released here -- see the accompanying report
+# for the reasoning.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*' # no existing tagging convention in this repo; semver with a
+                 # leading "v" is the common GitHub default and matches what
+                 # actions/checkout, actions/upload-artifact etc. use for
+                 # their own releases (see the SHA-pin table below).
+
+# A re-tagged/force-pushed tag re-triggering this workflow must not race a
+# still-running release of the same tag. Unlike the PR workflow, an
+# in-progress release is NOT cancelled outright (a half-finished push to a
+# public registry is worse than a queued duplicate) -- new runs queue behind
+# the in-flight one instead.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------
+  # 1. Build the two production images once, system-test them exactly as
+  #    built, then save them to a tarball for the publish job. contents:
+  #    read is the only permission this job needs -- it never talks to the
+  #    registry.
+  # ---------------------------------------------------------------------
+  build-and-test:
+    name: Build and system-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      image_repo: ${{ steps.names.outputs.image_repo }}
+      release_tag: ${{ steps.names.outputs.release_tag }}
+      backend_ref: ${{ steps.names.outputs.backend_ref }}
+      frontend_ref: ${{ steps.names.outputs.frontend_ref }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+
+      # GHCR requires a lowercase repository path. Computed once here and
+      # threaded through as job outputs so publish/attest use the identical
+      # strings instead of recomputing them (and risking drift).
+      - name: Resolve image names and release tag
+        id: names
+        run: |
+          repo_lower="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          tag="${GITHUB_REF_NAME}"
+          {
+            echo "image_repo=ghcr.io/${repo_lower}"
+            echo "release_tag=${tag}"
+            echo "backend_ref=ghcr.io/${repo_lower}-backend:${tag}"
+            echo "frontend_ref=ghcr.io/${repo_lower}-frontend:${tag}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate a development JWT keypair
+        run: ./scripts/gen-dev-keys.sh
+
+      - name: Mint a development token for the composed stack
+        run: echo "FULLSTACK_LOOP_DEV_TOKEN=$(./scripts/mint-dev-token.sh)" >> "$GITHUB_ENV"
+
+      - name: Build backend and frontend images
+        run: docker compose build backend frontend
+
+      - name: Tag images with the release tag
+        run: |
+          docker tag fullstack-loop-backend:latest "${{ steps.names.outputs.backend_ref }}"
+          docker tag fullstack-loop-frontend:latest "${{ steps.names.outputs.frontend_ref }}"
+
+      # System-test the EXACT images that were just built and tagged --
+      # docker-compose.yml's backend/frontend services build (or, since these
+      # are already built, reuse) `fullstack-loop-backend:latest` /
+      # `fullstack-loop-frontend:latest`, which are the same image content
+      # now also tagged with the release tag above. No rebuild happens here.
+      - name: Start the stack (mongo + backend + frontend)
+        run: docker compose up -d
+
+      - name: Wait for backend and frontend health
+        run: |
+          timeout 120 bash -c 'until curl -fsS http://localhost:8080/actuator/health >/dev/null; do sleep 3; done'
+          timeout 120 bash -c 'until curl -fsS http://localhost:4200/healthz >/dev/null; do sleep 3; done'
+
+      - name: Build e2e image
+        run: docker compose build e2e
+
+      - name: Run the browser acceptance suite (e2e profile)
+        run: docker compose --profile e2e run --rm e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-e2e-report
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Unconditional, per DOCKER-CONVENTIONS.md / the review requirement:
+      # no orphaned containers or volumes survive this job either way.
+      - name: Tear down the stack
+        if: always()
+        run: docker compose down -v
+
+      # No explicit "fail if a previous step failed" step is needed: every
+      # step below this point has no `if:` override, so a genuine failure in
+      # any step above (build, health wait, e2e run) already halts the job
+      # here, before anything is saved or handed to the publish job -- and
+      # `needs: build-and-test` means publish/attest never even start.
+
+      # Hand the EXACT images just tested to the publish job. `docker save`
+      # preserves the image content bit-for-bit; the publish job only
+      # `docker load`s this tarball -- it never runs `docker build` again, so
+      # what gets pushed is provably what was just tested.
+      - name: Save the tested images
+        run: |
+          docker save \
+            "${{ steps.names.outputs.backend_ref }}" \
+            "${{ steps.names.outputs.frontend_ref }}" \
+            -o release-images.tar
+
+      - name: Upload the tested images
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-images
+          path: release-images.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # 2. Load the exact images build-and-test produced (no rebuild) and push
+  #    them to GHCR. Only this job gets packages: write.
+  # ---------------------------------------------------------------------
+  publish:
+    name: Publish to GHCR
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      backend_digest: ${{ steps.push.outputs.backend_digest }}
+      frontend_digest: ${{ steps.push.outputs.frontend_digest }}
+    steps:
+      - name: Download the tested images
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-images
+
+      - name: Load the tested images (no rebuild)
+        run: docker load -i release-images.tar
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the exact tested images and capture their digests
+        id: push
+        run: |
+          docker push "${{ needs.build-and-test.outputs.backend_ref }}"
+          docker push "${{ needs.build-and-test.outputs.frontend_ref }}"
+          backend_digest="$(docker image inspect \
+            "${{ needs.build-and-test.outputs.backend_ref }}" \
+            --format '{{index (split (index .RepoDigests 0) "@") 1}}')"
+          frontend_digest="$(docker image inspect \
+            "${{ needs.build-and-test.outputs.frontend_ref }}" \
+            --format '{{index (split (index .RepoDigests 0) "@") 1}}')"
+          {
+            echo "backend_digest=${backend_digest}"
+            echo "frontend_digest=${frontend_digest}"
+          } >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------
+  # 3. Attest the digests that were actually pushed (captured as publish's
+  #    job outputs, never re-derived). Only this job gets id-token/
+  #    attestations: write.
+  # ---------------------------------------------------------------------
+  attest:
+    name: Attest build provenance
+    needs: [build-and-test, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Attest backend image provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ needs.build-and-test.outputs.image_repo }}-backend
+          subject-digest: ${{ needs.publish.outputs.backend_digest }}
+          push-to-registry: false
+
+      - name: Attest frontend image provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ needs.build-and-test.outputs.image_repo }}-frontend
+          subject-digest: ${{ needs.publish.outputs.frontend_digest }}
+          push-to-registry: false

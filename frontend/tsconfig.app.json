@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/app",
+    "types": [],
+
+    /* ACCEPTED DEVIATION (see report): the generated OpenAPI client lives inside
+       this program (the app imports it) and openapi-generator 7.16.0 emits
+       unused imports — e.g. `Problem` in tasks.serviceInterface.ts, which only
+       appeared once the contract gained a 4XX response. TypeScript cannot scope
+       noUnusedLocals/noUnusedParameters to a subdirectory, and `exclude` does
+       not help because imported files are pulled into the program anyway.
+       These two checks are therefore enforced on HAND-WRITTEN code by ESLint's
+       type-aware @typescript-eslint/no-unused-vars (error, --max-warnings=0),
+       which CAN ignore src/app/api/generated/. No other strict flag is relaxed:
+       exactOptionalPropertyTypes, noUncheckedIndexedAccess and the rest stay on
+       and the generated client satisfies them. */
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.spec.ts", "src/test-setup.ts"]
+}

@@ -1,0 +1,11 @@
+# Generated API client — produced from openapi/openapi.yaml, never committed.
+/src/app/api/generated/
+
+node_modules/
+dist/
+out-tsc/
+.angular/
+coverage/
+reports/
+.stryker-tmp/
+pacts/

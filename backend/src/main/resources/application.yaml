@@ -1,0 +1,50 @@
+# The application's own namespace. Bound with ignoreUnknownFields=false and
+# @Validated (see LoopProperties), so an unknown or blank loop.* property stops
+# the context from starting instead of being silently ignored.
+loop:
+  jwt-issuer: https://auth.fullstack-loop.local/
+  jwt-audience: fullstack-loop-api
+
+spring:
+  application:
+    name: fullstack-loop-backend
+  data:
+    mongodb:
+      # Overridden in every environment by SPRING_DATA_MONGODB_URI.
+      uri: ${SPRING_DATA_MONGODB_URI:mongodb://mongo:27017/loop}
+      database: loop
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Development / self-contained deployment: verify RS256 signatures
+          # against a public key mounted into the container. The key is never
+          # baked into the image.
+          #
+          # Production alternative, same code path, configuration only: drop
+          # public-key-location and set
+          #   spring.security.oauth2.resourceserver.jwt.issuer-uri: https://auth.fullstack-loop.local/
+          # so the decoder discovers the JWKS endpoint and rotates keys itself.
+          public-key-location: ${LOOP_JWT_PUBLIC_KEY_LOCATION:file:/etc/loop/jwt-public.pem}
+          # Signature, exp, iss and aud are all enforced - see
+          # JwtDecoderConfiguration, which builds the validator chain explicitly
+          # rather than depending on which validators auto-configuration decides
+          # to attach. JwtTimestampValidator's default 60s clock skew is exactly
+          # the leniency AUTH.md allows.
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    mongo:
+      enabled: true

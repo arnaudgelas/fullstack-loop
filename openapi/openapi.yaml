@@ -1,0 +1,173 @@
+openapi: 3.0.3
+info:
+  title: Fullstack Loop Task API
+  version: 1.0.0
+  description: |
+    Canonical HTTP contract for the Fullstack Loop reference stack.
+
+    This document is the single source of truth for the Angular client and the
+    Spring provider interface. Both are generated from it; neither is edited by
+    hand. Changing behaviour starts here.
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+  contact:
+    name: Fullstack Loop maintainers
+    url: https://example.com/fullstack-loop
+servers:
+  - url: /
+    description: |
+      Same-origin. The browser calls the API through the frontend nginx proxy, and
+      the generated clients take their base path from configuration, so no absolute
+      host is baked into the contract.
+security:
+  - bearerAuth: []
+tags:
+  - name: tasks
+    description: Create and inspect tasks.
+paths:
+  /api/tasks:
+    get:
+      operationId: listTasks
+      summary: List all tasks.
+      description: Returns every task, most recently created first.
+      tags: [tasks]
+      responses:
+        '200':
+          description: The tasks currently stored.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Task'
+        '401':
+          description: The bearer token is missing, malformed, expired, or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    post:
+      operationId: createTask
+      summary: Create a task.
+      description: Creates a task in the pending state and returns it.
+      tags: [tasks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewTask'
+      responses:
+        '201':
+          description: The task was created.
+          headers:
+            Location:
+              description: Canonical URL of the created task.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          description: The request body failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: The bearer token is missing, malformed, expired, or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/tasks/{taskId}:
+    get:
+      operationId: getTask
+      summary: Fetch a single task.
+      description: Returns the task with the given identifier.
+      tags: [tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          description: Identifier of the task.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The requested task.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '401':
+          description: The bearer token is missing, malformed, expired, or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: No task exists with that identifier.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        RS256-signed JWT access token. The provider validates the signature against
+        the configured public key or JWKS endpoint, and rejects tokens that are
+        expired or carry the wrong issuer or audience.
+  schemas:
+    Task:
+      type: object
+      description: A unit of work tracked by the system.
+      required: [id, title, completed]
+      properties:
+        id:
+          type: string
+          description: Server-assigned identifier.
+          example: 65f1c2d4e8a9b01234567890
+        title:
+          type: string
+          description: Human-readable summary of the work.
+          example: Write the failing acceptance scenario
+        completed:
+          type: boolean
+          description: Whether the task has been finished.
+          example: false
+    NewTask:
+      type: object
+      description: The caller-supplied fields needed to create a task.
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Human-readable summary of the work.
+          example: Write the failing acceptance scenario
+    Problem:
+      type: object
+      description: RFC 7807 style error payload.
+      required: [status, title]
+      properties:
+        status:
+          type: integer
+          format: int32
+          description: HTTP status code.
+          example: 404
+        title:
+          type: string
+          description: Short, human-readable summary of the problem.
+          example: Task not found
+        detail:
+          type: string
+          description: Explanation specific to this occurrence.
+          example: No task exists with id 65f1c2d4e8a9b01234567890

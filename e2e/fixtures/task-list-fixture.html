@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fullstack Loop Tasks</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        color: #1a1a1a;
+        background: #fff;
+      }
+      .tasks {
+        margin: 2rem auto;
+        max-width: 32rem;
+      }
+      label {
+        display: block;
+        margin-bottom: 0.25rem;
+      }
+      input,
+      button {
+        font: inherit;
+        padding: 0.4rem 0.6rem;
+      }
+      .unauthorized h2 {
+        color: #8a0018;
+        font-size: 1.1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      Verification double for the real Angular view
+      (frontend/src/app/tasks/task-list.ts). It exists so the fullstack-loop-e2e
+      image can be proven to genuinely drive a page, an auth flow and an axe scan
+      without the full stack.
+
+      It mirrors that component's DOM contract exactly: the data-testids, the
+      data-state attribute, the empty state that renders no <ul>, and -- the
+      detail that matters -- Angular's @if/@else REMOVES the branch it is not
+      showing. So the unauthorized state must not merely hide the task list, it
+      must not render it at all. Toggling `hidden` here instead would have made
+      this double quietly more permissive than the thing it stands in for.
+    -->
+    <main class="tasks" data-state="loading">
+      <h1>Tasks</h1>
+      <div id="view"></div>
+    </main>
+    <script type="module">
+      // The real app uses provideRouter with '' -> redirectTo 'tasks', so a
+      // deep link is a genuine route. Mirrored here so the journey can assert
+      // the redirect happened rather than trusting the nginx SPA fallback.
+      if (window.location.pathname === '/') {
+        window.history.replaceState({}, '', '/tasks');
+      }
+
+      const shell = document.querySelector('main[data-state]');
+      const view = document.querySelector('#view');
+
+      // Same seam as the real app: the token arrives from /config.json at
+      // bootstrap, which Playwright fulfils per test.
+      const config = await fetch('/config.json', { cache: 'no-store' })
+        .then((response) => (response.ok ? response.json() : { token: null }))
+        .catch(() => ({ token: null }));
+
+      const authHeaders = () =>
+        typeof config.token === 'string' && config.token.length > 0
+          ? { authorization: `Bearer ${config.token}` }
+          : {};
+
+      const html = (markup) => {
+        const template = document.createElement('template');
+        template.innerHTML = markup.trim();
+        return template.content;
+      };
+
+      const renderUnauthorized = () => {
+        shell.dataset.state = 'unauthorized';
+        view.replaceChildren(
+          html(`
+            <div class="unauthorized" role="alert" data-testid="unauthorized">
+              <h2>You are not signed in</h2>
+              <p>
+                The Task API rejected this session&apos;s bearer token. Sign in again to see
+                and add tasks.
+              </p>
+              <button type="button" data-testid="retry">Try again</button>
+            </div>
+          `),
+        );
+        view.querySelector('[data-testid="retry"]').addEventListener('click', () => {
+          void load();
+        });
+      };
+
+      const renderTasks = (tasks) => {
+        shell.dataset.state = 'ready';
+        view.replaceChildren(
+          html(`
+            <form data-testid="new-task-form">
+              <label for="new-task-title">New task</label>
+              <input
+                id="new-task-title"
+                data-testid="new-task-title"
+                name="title"
+                type="text"
+                autocomplete="off"
+              />
+              <button type="submit" data-testid="add-task">Add task</button>
+            </form>
+          `),
+        );
+
+        if (tasks.length === 0) {
+          view.append(html('<p>No tasks yet.</p>'));
+        } else {
+          const list = document.createElement('ul');
+          list.setAttribute('aria-label', 'Tasks');
+          list.dataset.testid = 'task-list';
+          list.replaceChildren(
+            ...tasks.map((task) => {
+              const item = document.createElement('li');
+              item.dataset.completed = String(task.completed);
+              item.textContent = task.title;
+              return item;
+            }),
+          );
+          view.append(list);
+        }
+
+        const form = view.querySelector('[data-testid="new-task-form"]');
+        const input = view.querySelector('[data-testid="new-task-title"]');
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const response = await fetch('/api/tasks', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({ title: input.value }),
+          });
+          if (response.status === 401) {
+            renderUnauthorized();
+            return;
+          }
+          await load();
+        });
+      };
+
+      const load = async () => {
+        const response = await fetch('/api/tasks', { headers: authHeaders() });
+        if (response.status === 401) {
+          renderUnauthorized();
+          return;
+        }
+        renderTasks(await response.json());
+      };
+
+      await load();
+    </script>
+  </body>
+</html>

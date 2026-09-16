@@ -1,0 +1,13 @@
+# Strict lint ruleset for the Fullstack Loop contract.
+#
+# `recommended-strict` is Redocly's `recommended` ruleset with every rule that
+# would normally be a warning promoted to `error`. Because `redocly lint` exits
+# non-zero on any error, this makes *every* problem — warnings included — fail
+# the build, which is what the strict contract-lint gate requires.
+#
+# This file is baked into the fullstack-loop-codegen image and passed explicitly with
+# `--config`, so a stray redocly.yaml in a developer's working tree cannot
+# silently weaken the gate. Do not add rule overrides here to make a failing
+# contract pass; fix openapi/openapi.yaml instead.
+extends:
+  - recommended-strict

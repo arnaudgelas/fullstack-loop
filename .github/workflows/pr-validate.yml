@@ -1,0 +1,228 @@
+# PR and main-push CI pipeline.
+#
+# Two jobs, `validate` then `system-test`, so a single job never has to hold
+# the CI toolbox image, Playwright browsers, MongoDB and all five application
+# images at once -- GitHub-hosted runners have roughly 14GB of disk, and that
+# combination risks exhausting it.
+#
+# `validate` runs ci/pr-validation.sh exactly as a developer would on their
+# laptop: `docker compose --profile ci run --rm ci`. This workflow does not
+# reimplement any of that script's logic -- see ci/pr-validation.sh and
+# QUALITY-GATES.md for what "the gate" actually checks and in what order.
+#
+# `system-test` brings the real stack up with docker compose and runs the
+# Playwright/axe-core acceptance suite against it, the same way a developer
+# would with `docker compose up -d` + `docker compose --profile e2e run`.
+
+name: PR Validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to the same PR branch (or to main) cancels the stale run rather
+# than racing it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Nothing here needs to write to the repo, publish packages, or mint an OIDC
+# token -- that belongs only to the release workflow. Read-only checkout.
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate (type check, lint, unit, slice, Cucumber, Pact, integration, mutation)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history, for mutation-testing diff scope)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      # ci/pr-validation.sh scopes PIT/Stryker with `git diff BASE_REF`
+      # (MUTATION_SCOPE=changed). On a pull_request, BASE_REF must be a real
+      # SHA -- github.base_ref is a branch name that can move under the run,
+      # which would silently change what "changed" means mid-flight, so we
+      # resolve github.event.pull_request.base.sha instead. On push to main
+      # there is no PR base, so we diff against the previous commit on the
+      # branch (github.event.before) with the same MUTATION_SCOPE=changed --
+      # ci/pr-validation.sh itself falls back to MUTATION_SCOPE=all if that
+      # ref turns out to be unresolvable (e.g. the very first commit on the
+      # branch, or a history-rewriting push), so we don't need to reimplement
+      # that fallback here.
+      - name: Resolve BASE_REF / MUTATION_SCOPE
+        id: mutation-scope
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "BASE_REF=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_ENV"
+          else
+            echo "BASE_REF=${{ github.event.before }}" >> "$GITHUB_ENV"
+          fi
+          echo "MUTATION_SCOPE=changed" >> "$GITHUB_ENV"
+
+      # PIT's incremental analysis needs its previous history file. Pull requests
+      # may restore trusted default-branch caches but never save one; only a
+      # successful push to main publishes the new history below.
+      - name: Restore trusted PIT history
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: backend/target/pit-history
+          key: pit-${{ runner.os }}-${{ env.BASE_REF }}
+          restore-keys: |
+            pit-${{ runner.os }}-
+
+      # The validation script invokes Maven/npm directly inside the CI toolbox.
+      # It only needs the codegen image for its sibling-container contract step;
+      # backend/frontend production images belong to the later system-test job.
+      - name: Build required images
+        run: docker compose build codegen ci
+
+      # The CI toolbox deliberately runs as non-root. Grant it the actual group
+      # owning the host Docker socket rather than assuming Docker Desktop's gid 0.
+      - name: Resolve Docker socket group
+        run: echo "DOCKER_SOCKET_GID=$(stat -c '%g' /var/run/docker.sock)" >> "$GITHUB_ENV"
+
+      # Run the gate exactly as a developer would. HOST_WORKSPACE is required
+      # because ci/pr-validation.sh's contract-lint/contract-generate steps
+      # start sibling containers on the HOST daemon through the mounted
+      # socket; without it they refuse to run (see ci/pr-validation.sh).
+      # BASE_REF and MUTATION_SCOPE are passed through explicitly because the
+      # `ci` service in docker-compose.yml does not declare them as
+      # environment passthrough.
+      - name: Run PR validation gate (docker compose --profile ci run ci)
+        run: |
+          HOST_WORKSPACE="$PWD" docker compose --profile ci run --rm \
+            -e BASE_REF="${BASE_REF}" \
+            -e MUTATION_SCOPE="${MUTATION_SCOPE}" \
+            ci
+
+      - name: Save PIT history from trusted main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && success()
+        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: backend/target/pit-history
+          key: pit-${{ runner.os }}-${{ github.sha }}
+
+      # Paths confirmed by reading backend/pom.xml and frontend/package.json,
+      # frontend/vitest.*.config.ts and frontend/stryker.config.mjs:
+      #   JaCoCo report goal   -> target/site/jacoco (default outputDirectory)
+      #   PIT                  -> target/pit-reports (default reportsDirectory)
+      #   Surefire             -> target/surefire-reports
+      #   Failsafe             -> target/failsafe-reports
+      #   Vitest coverage      -> frontend/coverage, coverage/unit, coverage/component
+      #   Stryker HTML report  -> frontend/reports/mutation
+      - name: Upload backend reports
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: backend-reports
+          path: |
+            backend/target/site/jacoco/
+            backend/target/pit-reports/
+            backend/target/surefire-reports/
+            backend/target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload frontend reports
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: frontend-reports
+          path: |
+            frontend/coverage/
+            frontend/reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  system-test:
+    name: System test (docker compose up + Playwright/axe-core)
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Dev keys are generated fresh every run, never committed (AUTH.md,
+      # README.md). The mint script prints the token to stdout; we write it
+      # straight into GITHUB_ENV rather than echoing it into the log.
+      - name: Generate dev keys and mint dev token
+        run: |
+          ./scripts/gen-dev-keys.sh
+          {
+            echo "FULLSTACK_LOOP_DEV_TOKEN<<TOKEN_EOF"
+            ./scripts/mint-dev-token.sh
+            echo "TOKEN_EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Build backend and frontend images
+        run: docker compose build backend frontend
+
+      - name: Start the stack
+        run: docker compose up -d backend frontend
+
+      # docker-compose.yml declares real HEALTHCHECKs for both services
+      # (backend: interval 10s/start_period 40s/retries 5; frontend: interval
+      # 30s/start_period 5s/retries 3) -- poll them for real instead of a
+      # fixed sleep, with a real timeout so a stuck container fails fast.
+      - name: Wait for backend and frontend to become healthy
+        run: |
+          deadline=$((SECONDS + 180))
+          for svc in backend frontend; do
+            cid="$(docker compose ps -q "${svc}")"
+            while true; do
+              status="$(docker inspect --format '{{.State.Health.Status}}' "${cid}")"
+              if [[ "${status}" == "healthy" ]]; then
+                echo "${svc} is healthy"
+                break
+              fi
+              if (( SECONDS > deadline )); then
+                echo "::error::${svc} did not become healthy within the timeout (last status: ${status})"
+                docker compose logs "${svc}"
+                exit 1
+              fi
+              sleep 3
+            done
+          done
+
+      - name: Build e2e image
+        run: docker compose build e2e
+
+      # These bind mounts must exist before Docker starts the non-root (uid 1001)
+      # e2e container. Otherwise Docker creates root-owned directories and
+      # Playwright cannot write its report or failure artifacts on Linux.
+      - name: Prepare Playwright artifact directories
+        run: mkdir -p e2e/playwright-report e2e/test-results
+
+      - name: Run Playwright/axe-core acceptance suite
+        run: docker compose --profile e2e run --rm e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Dump backend/frontend logs on failure
+        if: failure()
+        run: |
+          docker compose logs backend
+          docker compose logs frontend
+
+      - name: Tear down the stack
+        if: always()
+        run: docker compose down -v

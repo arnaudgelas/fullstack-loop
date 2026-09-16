@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/spec",
+    "types": ["node", "vitest/globals"],
+
+    /* Same accepted deviation as tsconfig.app.json: the specs import the
+       generated client, so it is part of this program too. Hand-written code is
+       covered by @typescript-eslint/no-unused-vars. */
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "vitest.config.ts",
+    "vitest.unit.config.ts",
+    "vitest.component.config.ts",
+    "vitest.pact.config.ts",
+    "vitest.shared.ts",
+    "vitest.rings.ts",
+    "stryker.config.mjs"
+  ]
+}

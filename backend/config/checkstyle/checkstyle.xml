@@ -1,0 +1,154 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+    "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+    "https://checkstyle.org/dtds/configuration_1_3.dtd">
+<!--
+  Strict Checkstyle ruleset for backend/.
+
+  Every module below is declared at severity="error" and the plugin runs with
+  violationSeverity=warning, so anything Checkstyle reports at all fails the
+  build. There are no per-rule suppressions and no suppression filter file:
+  if a rule fires, the code changes.
+
+  Whitespace, wrapping, indentation and import ORDER are deliberately not
+  duplicated here - Spotless + palantir-java-format is the single authority on
+  layout, and running two formatters against each other produces unfixable
+  builds rather than better code. Checkstyle owns naming, structure, Javadoc,
+  and the coding-problem checks that a formatter cannot see.
+-->
+<module name="Checker">
+  <property name="severity" value="error"/>
+  <property name="charset" value="UTF-8"/>
+  <property name="fileExtensions" value="java"/>
+
+  <module name="NewlineAtEndOfFile"/>
+  <module name="FileTabCharacter"/>
+  <module name="RegexpSingleline">
+    <property name="format" value="\s+$"/>
+    <property name="message" value="Trailing whitespace"/>
+  </module>
+  <module name="LineLength">
+    <property name="max" value="120"/>
+    <property name="ignorePattern" value="^package .*|^import .*|^\s*\* *https?://"/>
+  </module>
+
+  <module name="TreeWalker">
+
+    <!-- Naming -->
+    <module name="PackageName"/>
+    <module name="TypeName"/>
+    <module name="MemberName"/>
+    <module name="ParameterName"/>
+    <module name="LocalVariableName"/>
+    <module name="LocalFinalVariableName"/>
+    <module name="MethodName"/>
+    <module name="ConstantName"/>
+    <module name="StaticVariableName"/>
+    <module name="ClassTypeParameterName"/>
+    <module name="MethodTypeParameterName"/>
+    <module name="AbbreviationAsWordInName">
+      <property name="allowedAbbreviationLength" value="1"/>
+      <property name="ignoreStaticFinal" value="true"/>
+    </module>
+
+    <!-- Imports -->
+    <module name="AvoidStarImport"/>
+    <module name="IllegalImport"/>
+    <module name="RedundantImport"/>
+    <module name="UnusedImports">
+      <property name="processJavadoc" value="true"/>
+    </module>
+
+    <!-- Javadoc: every public type and method carries one, and it parses. -->
+    <module name="JavadocType">
+      <property name="scope" value="public"/>
+    </module>
+    <module name="JavadocMethod">
+      <property name="accessModifiers" value="public"/>
+      <property name="validateThrows" value="true"/>
+    </module>
+    <module name="SummaryJavadoc">
+      <property name="forbiddenSummaryFragments"
+                value="^@return the *|^This method returns |^A [{]@code [a-zA-Z0-9]+[}]( is a )"/>
+    </module>
+    <module name="JavadocMissingWhitespaceAfterAsterisk"/>
+    <module name="NonEmptyAtclauseDescription"/>
+    <module name="InvalidJavadocPosition"/>
+    <module name="SingleLineJavadoc"/>
+
+    <!-- Structure -->
+    <module name="FinalClass"/>
+    <module name="HideUtilityClassConstructor"/>
+    <module name="InterfaceIsType"/>
+    <module name="OneTopLevelClass"/>
+    <module name="OuterTypeFilename"/>
+    <module name="MutableException"/>
+    <module name="VisibilityModifier">
+      <property name="protectedAllowed" value="true"/>
+    </module>
+
+    <!-- Coding problems -->
+    <module name="CovariantEquals"/>
+    <module name="DefaultComesLast"/>
+    <module name="EmptyStatement"/>
+    <module name="EqualsHashCode"/>
+    <module name="FallThrough"/>
+    <module name="IllegalCatch"/>
+    <module name="IllegalThrows"/>
+    <module name="IllegalTokenText"/>
+    <module name="InnerAssignment"/>
+    <module name="MagicNumber">
+      <property name="ignoreAnnotation" value="true"/>
+      <property name="ignoreHashCodeMethod" value="true"/>
+    </module>
+    <module name="MissingSwitchDefault"/>
+    <module name="ModifiedControlVariable"/>
+    <module name="MultipleVariableDeclarations"/>
+    <module name="NestedForDepth">
+      <property name="max" value="2"/>
+    </module>
+    <module name="NestedIfDepth">
+      <property name="max" value="2"/>
+    </module>
+    <module name="NestedTryDepth">
+      <property name="max" value="1"/>
+    </module>
+    <module name="NoClone"/>
+    <module name="NoFinalizer"/>
+    <module name="PackageDeclaration"/>
+    <module name="SimplifyBooleanExpression"/>
+    <module name="SimplifyBooleanReturn"/>
+    <module name="StringLiteralEquality"/>
+    <module name="SuperClone"/>
+    <module name="UnnecessarySemicolonInEnumeration"/>
+    <module name="UnnecessarySemicolonInTryWithResources"/>
+    <module name="UnnecessarySemicolonAfterOuterTypeDeclaration"/>
+    <module name="UnnecessarySemicolonAfterTypeMemberDeclaration"/>
+    <module name="UnusedLocalVariable"/>
+    <module name="EqualsAvoidNull"/>
+    <module name="ExplicitInitialization"/>
+    <module name="OneStatementPerLine"/>
+    <module name="UpperEll"/>
+    <module name="ArrayTypeStyle"/>
+    <module name="ModifierOrder"/>
+    <module name="RedundantModifier"/>
+    <module name="NeedBraces"/>
+    <module name="EmptyCatchBlock"/>
+    <module name="DeclarationOrder"/>
+    <module name="OverloadMethodsDeclarationOrder"/>
+
+    <!-- Complexity budgets -->
+    <module name="CyclomaticComplexity">
+      <property name="max" value="8"/>
+    </module>
+    <module name="BooleanExpressionComplexity">
+      <property name="max" value="3"/>
+    </module>
+    <module name="MethodLength">
+      <property name="max" value="60"/>
+    </module>
+    <module name="ParameterNumber">
+      <property name="max" value="7"/>
+    </module>
+  </module>
+</module>

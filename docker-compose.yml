@@ -1,0 +1,129 @@
+# Fast local development environment — the middle of the development loop (see README.md).
+#
+#   docker compose up -d                     mongo + backend + frontend
+#   docker compose --profile codegen run --rm codegen all
+#   docker compose --profile e2e run --rm e2e
+#   docker compose --profile ci run --rm ci
+#
+# Only mongo/backend/frontend start by default; everything else is a
+# run-to-completion tool behind a profile, so `up` stays fast.
+
+name: fullstack-loop
+
+services:
+  mongo:
+    image: mongo:8.0.20
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: loop
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  backend:
+    image: fullstack-loop-backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_DATA_MONGODB_URI: mongodb://mongo:27017/loop
+      SPRING_PROFILES_ACTIVE: docker
+      # Verification key only. The signing key never reaches the provider.
+      LOOP_JWT_PUBLIC_KEY_LOCATION: file:/etc/loop/jwt-public.pem
+    volumes:
+      - ./dev-keys/jwt-dev-public.pem:/etc/loop/jwt-public.pem:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  frontend:
+    image: fullstack-loop-frontend
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    environment:
+      # The dev token is injected at container start and served via /config.json.
+      # It is never baked into the image or the JS bundle. Empty by default, which
+      # makes the app boot tokenless and render its 401 state — the honest default.
+      FULLSTACK_LOOP_FRONTEND_TOKEN: "${FULLSTACK_LOOP_DEV_TOKEN:-}"
+      FULLSTACK_LOOP_API_BASE_PATH: ""
+      BACKEND_ORIGIN: http://backend:8080
+    ports:
+      - "4200:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # --- tools: run to completion, never started by `up` ------------------------
+
+  codegen:
+    image: fullstack-loop-codegen
+    profiles: ["codegen"]
+    build:
+      context: .
+      dockerfile: tools/codegen/Dockerfile
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+
+  e2e:
+    image: fullstack-loop-e2e
+    profiles: ["e2e"]
+    build:
+      context: .
+      dockerfile: e2e/Dockerfile
+    environment:
+      BASE_URL: http://frontend:8080
+    volumes:
+      - ./e2e/playwright-report:/e2e/playwright-report
+      - ./e2e/test-results:/e2e/test-results
+      # The e2e suite MINTS tokens, so it is the one place the private key is needed.
+      - ./dev-keys/jwt-dev-private.pem:/etc/loop/jwt-private.pem:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+  # Not really part of the app stack: it needs the host docker socket and a
+  # writable checkout, which makes it a CI-runner image. Kept here for convenience.
+  ci:
+    image: fullstack-loop-ci
+    profiles: ["ci"]
+    build:
+      context: .
+      dockerfile: ci/Dockerfile
+    environment:
+      # STRICT=1 is the script's own default -- a missing or unrunnable gate is a
+      # FAILURE, not a SKIP. Do not set RUN_MUTATION here: the script's default is
+      # "= STRICT" (i.e. on), and pinning it to 0 in this file previously forced
+      # every `docker compose --profile ci run ci` to fail on the mutation gate by
+      # default, which is not what "the CI default" is supposed to mean. Override
+      # with `RUN_MUTATION=0 docker compose --profile ci run ci` for a deliberately
+      # faster local run instead.
+      STRICT: "${STRICT:-1}"
+      # The contract gates start SIBLING containers on the host daemon, so they need
+      # the host-side path of the checkout. The gate refuses to guess it rather than
+      # silently bind-mounting an empty directory and linting nothing.
+      HOST_WORKSPACE: "${PWD}"
+    volumes:
+      - .:/workspace             # writable: the gate builds here
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_SOCKET_GID:-0}"  # Docker Desktop's socket is gid 0 inside the VM
+    working_dir: /workspace
+
+volumes:
+  mongo-data:

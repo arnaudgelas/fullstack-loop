@@ -1,0 +1,869 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.5.16</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.example.loop</groupId>
+  <artifactId>fullstack-loop-backend</artifactId>
+  <version>1.0.0</version>
+  <name>fullstack-loop-backend</name>
+  <description>Spring Boot provider for the Fullstack Loop Task API</description>
+
+  <properties>
+    <java.version>21</java.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <openapi-generator.version>7.16.0</openapi-generator.version>
+    <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
+    <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>
+    <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
+    <pitest.version>1.20.5</pitest.version>
+    <pitest-junit5-plugin.version>1.2.3</pitest-junit5-plugin.version>
+    <pitest.mutation.threshold>90</pitest.mutation.threshold>
+    <pitest.coverage.threshold>90</pitest.coverage.threshold>
+    <spotless.version>3.10.2</spotless.version>
+    <palantir-java-format.version>2.98.0</palantir-java-format.version>
+    <checkstyle.version>14.1.0</checkstyle.version>
+    <spotbugs-maven-plugin.version>4.10.4.1</spotbugs-maven-plugin.version>
+    <spotbugs.version>4.10.4</spotbugs.version>
+    <!-- Kept in lockstep with the version spring-security-oauth2-jose resolves. -->
+    <jspecify.version>1.0.1</jspecify.version>
+    <nimbus-jose-jwt.version>9.37.4</nimbus-jose-jwt.version>
+    <archunit.version>1.5.0</archunit.version>
+    <pact.version>4.7.5</pact.version>
+    <!-- 7.23.x is the last line built against JUnit Platform 1.12.x, which is what
+         Spring Boot 3.5 manages. Newer cucumber needs 1.13+ and blows up at
+         engine discovery. Bump both together, never one alone. -->
+    <cucumber.version>7.23.0</cucumber.version>
+
+    <!--
+      The contract lives at <repo-root>/openapi/openapi.yaml. On a developer
+      machine that is ../openapi/openapi.yaml relative to this pom; inside the
+      Docker build stage the file is copied next to the module so the same
+      relative path resolves. Override with -Dopenapi.spec=<path> if needed.
+    -->
+    <openapi.spec>${project.basedir}/../openapi/openapi.yaml</openapi.spec>
+  </properties>
+
+  <dependencies>
+    <!--
+      Starters. These are aggregator POMs with no classes of their own, so
+      dependency:analyze-only always reports them as "unused declared"; they are
+      listed in ignoredUnusedDeclaredDependencies below with that reason.
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-mongodb</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+    </dependency>
+
+    <!--
+      Everything the hand-written and generated main sources actually import.
+      Declared explicitly so dependency:analyze-only has no "used undeclared"
+      finding; versions all come from the Spring Boot BOM.
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-autoconfigure</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-context</artifactId>
+    </dependency>
+    <!--
+      spring-beans is referenced from test sources only (@Autowired), but it is a
+      hard runtime requirement of spring-context. Declaring it <scope>test</scope>
+      would win over the transitive compile scope and strip it from the shipped
+      classpath, so it stays compile-scoped and is listed in
+      ignoredNonTestScopedDependencies.
+    -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-beans</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.data</groupId>
+      <artifactId>spring-data-commons</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.data</groupId>
+      <artifactId>spring-data-mongodb</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tomcat.embed</groupId>
+      <artifactId>tomcat-embed-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-annotations</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>jakarta.validation</groupId>
+      <artifactId>jakarta.validation-api</artifactId>
+    </dependency>
+    <!--
+      Annotations only, no runtime behaviour. Lets the domain express nullability
+      to NullAway without taking a dependency on Spring's @Nullable, which the
+      ArchUnit rules forbid the domain from touching.
+    -->
+    <dependency>
+      <groupId>org.jspecify</groupId>
+      <artifactId>jspecify</artifactId>
+      <version>${jspecify.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-config</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-oauth2-core</artifactId>
+    </dependency>
+    <!-- NimbusJwtDecoder and the validator chain in JwtDecoderConfiguration. -->
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-oauth2-jose</artifactId>
+    </dependency>
+    <!--
+      Compile scope, NOT test scope, even though only the tests name a class
+      from it. NimbusJwtDecoder is built on it at runtime, and a direct
+      <scope>test</scope> declaration wins over the transitive compile scope and
+      silently strips the jar from the shipped application - which is exactly the
+      NoClassDefFoundError this once caused at container start. It is therefore
+      listed in ignoredNonTestScopedDependencies below.
+    -->
+    <dependency>
+      <groupId>com.nimbusds</groupId>
+      <artifactId>nimbus-jose-jwt</artifactId>
+      <version>${nimbus-jose-jwt.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
+
+    <!-- Test: inner + middle rings -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-api</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-test-autoconfigure</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Test: architecture ring - the layering rules, made executable -->
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit</artifactId>
+      <version>${archunit.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Test: integration ring (Testcontainers) -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>mongodb</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Test: outer ring (Cucumber acceptance) -->
+    <dependency>
+      <groupId>io.cucumber</groupId>
+      <artifactId>cucumber-java</artifactId>
+      <version>${cucumber.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.cucumber</groupId>
+      <artifactId>cucumber-spring</artifactId>
+      <version>${cucumber.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- ServiceLoader-discovered test engine: no compile-time reference. -->
+    <dependency>
+      <groupId>io.cucumber</groupId>
+      <artifactId>cucumber-junit-platform-engine</artifactId>
+      <version>${cucumber.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.platform</groupId>
+      <artifactId>junit-platform-suite-api</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- ServiceLoader-discovered test engine: no compile-time reference. -->
+    <dependency>
+      <groupId>org.junit.platform</groupId>
+      <artifactId>junit-platform-suite-engine</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Test: provider-side Pact verification -->
+    <dependency>
+      <groupId>au.com.dius.pact</groupId>
+      <artifactId>provider</artifactId>
+      <version>${pact.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>au.com.dius.pact.provider</groupId>
+      <artifactId>junit5</artifactId>
+      <version>${pact.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- The pact request filter manipulates an Apache HttpClient 5 request. -->
+    <dependency>
+      <groupId>org.apache.httpcomponents.core5</groupId>
+      <artifactId>httpcore5</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Reflectively-loaded Spring integration for the pact verifier. -->
+    <dependency>
+      <groupId>au.com.dius.pact.provider</groupId>
+      <artifactId>junit5spring</artifactId>
+      <version>${pact.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        The Spring API interfaces are GENERATED from the canonical contract.
+        Nothing under target/generated-sources is committed; the web adapter
+        implements TasksApi rather than hand-writing the HTTP signatures.
+      -->
+      <plugin>
+        <groupId>org.openapitools</groupId>
+        <artifactId>openapi-generator-maven-plugin</artifactId>
+        <version>${openapi-generator.version}</version>
+        <executions>
+          <execution>
+            <id>generate-task-api</id>
+            <goals><goal>generate</goal></goals>
+            <configuration>
+              <inputSpec>${openapi.spec}</inputSpec>
+              <!--
+                Match the codegen image: validate the spec strictly instead of
+                letting the generator recover from a broken contract.
+              -->
+              <skipValidateSpec>false</skipValidateSpec>
+              <generatorName>spring</generatorName>
+              <library>spring-boot</library>
+              <apiPackage>com.example.loop.api</apiPackage>
+              <modelPackage>com.example.loop.api.model</modelPackage>
+              <generateApiTests>false</generateApiTests>
+              <generateModelTests>false</generateModelTests>
+              <generateApiDocumentation>false</generateApiDocumentation>
+              <generateModelDocumentation>false</generateModelDocumentation>
+              <configOptions>
+                <interfaceOnly>true</interfaceOnly>
+                <!--
+                  Without this the generator stamps a wall-clock date into every
+                  @Generated annotation, so two runs over the same contract
+                  differ. That defeats reproducibility, breaks Docker layer
+                  caching, and forces the codegen image's drift check to strip
+                  the attribute before it can diff a Maven-generated tree
+                  against a CLI-generated one.
+                -->
+                <hideGenerationTimestamp>true</hideGenerationTimestamp>
+                <useSpringBoot3>true</useSpringBoot3>
+                <useTags>true</useTags>
+                <useJakartaEe>true</useJakartaEe>
+                <openApiNullable>false</openApiNullable>
+                <documentationProvider>none</documentationProvider>
+                <annotationLibrary>none</annotationLibrary>
+                <skipDefaultInterface>true</skipDefaultInterface>
+                <performBeanValidation>true</performBeanValidation>
+                <useBeanValidation>true</useBeanValidation>
+              </configOptions>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        No used-undeclared and no unused-declared dependencies. failOnWarning is
+        on and ignoreNonCompile is off, so test-scoped findings count too.
+        The ignore lists are narrow and each entry is justified above at its
+        <dependency> declaration: aggregator POMs that contain no classes, test
+        engines found through ServiceLoader, and one runtime-required artifact
+        that is only referenced from test code.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>analyze-dependencies</id>
+            <phase>verify</phase>
+            <goals><goal>analyze-only</goal></goals>
+            <configuration>
+              <failOnWarning>true</failOnWarning>
+              <ignoreNonCompile>false</ignoreNonCompile>
+              <ignoredUnusedDeclaredDependencies>
+                <!-- Aggregator POMs: no classes to reference. -->
+                <dep>org.springframework.boot:spring-boot-starter-web</dep>
+                <dep>org.springframework.boot:spring-boot-starter-validation</dep>
+                <dep>org.springframework.boot:spring-boot-starter-data-mongodb</dep>
+                <dep>org.springframework.boot:spring-boot-starter-actuator</dep>
+                <dep>org.springframework.boot:spring-boot-starter-oauth2-resource-server</dep>
+                <dep>org.springframework.boot:spring-boot-starter-test</dep>
+                <!-- Discovered at runtime via ServiceLoader / reflection. -->
+                <dep>io.cucumber:cucumber-junit-platform-engine</dep>
+                <dep>org.junit.platform:junit-platform-suite-engine</dep>
+                <dep>au.com.dius.pact.provider:junit5spring</dep>
+              </ignoredUnusedDeclaredDependencies>
+              <ignoredNonTestScopedDependencies>
+                <!-- Runtime requirement of spring-context; see declaration. -->
+                <dep>org.springframework:spring-beans</dep>
+                <!-- Runtime requirement of NimbusJwtDecoder; see declaration. -->
+                <dep>com.nimbusds:nimbus-jose-jwt</dep>
+              </ignoredNonTestScopedDependencies>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        Spotless in check mode. Formatting drift is a build failure; `./mvnw
+        spotless:apply` fixes it. Generated sources are not under src/ so they
+        are outside its reach by construction.
+      -->
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>${spotless.version}</version>
+        <configuration>
+          <java>
+            <includes>
+              <include>src/main/java/**/*.java</include>
+              <include>src/test/java/**/*.java</include>
+            </includes>
+            <palantirJavaFormat>
+              <version>${palantir-java-format.version}</version>
+            </palantirJavaFormat>
+            <removeUnusedImports/>
+            <importOrder/>
+            <trimTrailingWhitespace/>
+            <endWithNewline/>
+          </java>
+        </configuration>
+        <executions>
+          <execution>
+            <id>spotless-check</id>
+            <phase>validate</phase>
+            <goals><goal>check</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        Checkstyle at violationSeverity=warning: every finding fails. Restricted
+        to the hand-written source roots so the generated interface, which is not
+        ours to format, is not judged by a hand-written-code style rule.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>${maven-checkstyle-plugin.version}</version>
+        <configuration>
+          <configLocation>${project.basedir}/config/checkstyle/checkstyle.xml</configLocation>
+          <sourceDirectories>
+            <sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>
+          </sourceDirectories>
+          <testSourceDirectories>
+            <testSourceDirectory>${project.basedir}/src/test/java</testSourceDirectory>
+          </testSourceDirectories>
+          <includeTestSourceDirectory>true</includeTestSourceDirectory>
+          <violationSeverity>warning</violationSeverity>
+          <failOnViolation>true</failOnViolation>
+          <failsOnError>true</failsOnError>
+          <consoleOutput>true</consoleOutput>
+        </configuration>
+        <dependencies>
+          <dependency>
+            <groupId>com.puppycrawl.tools</groupId>
+            <artifactId>checkstyle</artifactId>
+            <version>${checkstyle.version}</version>
+          </dependency>
+        </dependencies>
+        <executions>
+          <execution>
+            <id>checkstyle-check</id>
+            <phase>validate</phase>
+            <goals><goal>check</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        PMD and CPD. excludeRoots drops target/generated-sources: the generated
+        interface is not hand-written code and duplicate-token analysis across
+        generated models is meaningless.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-pmd-plugin</artifactId>
+        <version>${maven-pmd-plugin.version}</version>
+        <configuration>
+          <rulesets>
+            <ruleset>${project.basedir}/config/pmd/ruleset.xml</ruleset>
+          </rulesets>
+          <includeTests>true</includeTests>
+          <failOnViolation>true</failOnViolation>
+          <printFailingErrors>true</printFailingErrors>
+          <minimumTokens>60</minimumTokens>
+          <excludeRoots>
+            <excludeRoot>${project.build.directory}/generated-sources</excludeRoot>
+          </excludeRoots>
+          <targetJdk>${java.version}</targetJdk>
+        </configuration>
+        <executions>
+          <execution>
+            <id>pmd-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+              <goal>cpd-check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        SpotBugs at maximum effort and lowest reporting threshold. It reads
+        bytecode, so the generated API package is filtered out in
+        config/spotbugs/exclude.xml rather than by source path.
+      -->
+      <plugin>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-maven-plugin</artifactId>
+        <version>${spotbugs-maven-plugin.version}</version>
+        <configuration>
+          <effort>Max</effort>
+          <threshold>Low</threshold>
+          <failOnError>true</failOnError>
+          <includeTests>true</includeTests>
+          <excludeFilterFile>${project.basedir}/config/spotbugs/exclude.xml</excludeFilterFile>
+        </configuration>
+        <dependencies>
+          <dependency>
+            <groupId>com.github.spotbugs</groupId>
+            <artifactId>spotbugs</artifactId>
+            <version>${spotbugs.version}</version>
+          </dependency>
+        </dependencies>
+        <executions>
+          <execution>
+            <id>spotbugs-check</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        JaCoCo. The thresholds are set just under what the suite actually
+        achieves today, so they fail on a real regression rather than being
+        aspirational numbers nobody meets. Generated sources are excluded: they
+        are not code we wrote and covering them measures nothing.
+
+        prepare-agent runs before surefire and prepare-agent-integration before
+        failsafe, and report-aggregate merges both, so the ratio reflects the
+        whole loop - unit, slice, integration, acceptance and pact - not just
+        the fast rings.
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco-maven-plugin.version}</version>
+        <configuration>
+          <excludes>
+            <exclude>com/example/loop/api/**</exclude>
+          </excludes>
+        </configuration>
+        <executions>
+          <execution>
+            <id>jacoco-prepare-unit</id>
+            <goals><goal>prepare-agent</goal></goals>
+          </execution>
+          <execution>
+            <id>jacoco-prepare-integration</id>
+            <goals><goal>prepare-agent-integration</goal></goals>
+          </execution>
+          <execution>
+            <id>jacoco-merge</id>
+            <phase>post-integration-test</phase>
+            <goals><goal>merge</goal></goals>
+            <configuration>
+              <fileSets>
+                <fileSet>
+                  <directory>${project.build.directory}</directory>
+                  <includes>
+                    <include>jacoco.exec</include>
+                    <include>jacoco-it.exec</include>
+                  </includes>
+                </fileSet>
+              </fileSets>
+              <destFile>${project.build.directory}/jacoco-merged.exec</destFile>
+            </configuration>
+          </execution>
+          <execution>
+            <id>jacoco-report</id>
+            <phase>post-integration-test</phase>
+            <goals><goal>report</goal></goals>
+            <configuration>
+              <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+            </configuration>
+          </execution>
+          <execution>
+            <id>jacoco-check</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+            <configuration>
+              <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>INSTRUCTION</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>0.95</minimum>
+                    </limit>
+                    <limit>
+                      <counter>BRANCH</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>0.95</minimum>
+                    </limit>
+                    <limit>
+                      <counter>CLASS</counter>
+                      <value>MISSEDCOUNT</value>
+                      <maximum>0</maximum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        PIT mutation testing.
+
+        Scoped by default: only the domain and web adapter are mutated, and only
+        the surefire-runnable tests (inner + slice + architecture) are used as
+        the kill set, so it stays a fast-loop gate rather than a nightly job.
+        The generated API package is never mutated - mutating code we did not
+        write measures the generator, not us.
+
+        mutationThreshold and coverageThreshold both fail the build. Bound to
+        verify behind the "mutation" profile so `-P mutation` is how CI widens
+        it; the default build keeps `verify` quick.
+      -->
+      <plugin>
+        <groupId>org.pitest</groupId>
+        <artifactId>pitest-maven</artifactId>
+        <version>${pitest.version}</version>
+        <configuration>
+          <targetClasses>
+            <param>com.example.loop.domain.*</param>
+            <param>com.example.loop.web.*</param>
+          </targetClasses>
+          <targetTests>
+            <param>com.example.loop.domain.*Test</param>
+            <param>com.example.loop.web.*Test</param>
+          </targetTests>
+          <excludedClasses>
+            <!-- Generated from the contract: mutating it measures the generator. -->
+            <param>com.example.loop.api.*</param>
+            <!--
+              Spring wiring, not logic. A @Bean method has no branches to get
+              wrong; "replaced return value with null" in a SecurityFilterChain
+              factory is not a test-quality signal, it just reports that the fast
+              ring does not boot a context. These classes ARE covered, by the
+              Testcontainers and pact suites, which PIT does not run because
+              re-running a Dockerised suite per mutant is not a fast-loop gate.
+            -->
+            <param>com.example.loop.web.SecurityConfiguration</param>
+            <param>com.example.loop.web.JwtDecoderConfiguration</param>
+            <param>com.example.loop.config.*</param>
+          </excludedClasses>
+          <excludedTestClasses>
+            <param>com.example.loop.*IT</param>
+          </excludedTestClasses>
+          <excludedGroups>
+            <param>requires-docker</param>
+          </excludedGroups>
+          <mutationThreshold>${pitest.mutation.threshold}</mutationThreshold>
+          <coverageThreshold>${pitest.coverage.threshold}</coverageThreshold>
+          <failWhenNoMutations>true</failWhenNoMutations>
+          <timestampedReports>false</timestampedReports>
+          <outputFormats>
+            <param>HTML</param>
+            <param>XML</param>
+          </outputFormats>
+        </configuration>
+        <dependencies>
+          <dependency>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-junit5-plugin</artifactId>
+            <version>${pitest-junit5-plugin.version}</version>
+          </dependency>
+        </dependencies>
+      </plugin>
+
+      <!--
+        Enforcer. Fails the build on a wrong JDK/Maven, on any dependency whose
+        version is resolved inconsistently, on a transitive version lower than
+        one something else asks for, and on duplicate declarations in this pom.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>enforce-build-hygiene</id>
+            <goals><goal>enforce</goal></goals>
+            <configuration>
+              <rules>
+                <requireJavaVersion><version>[21,22)</version></requireJavaVersion>
+                <requireMavenVersion><version>[3.9.0,)</version></requireMavenVersion>
+                <dependencyConvergence/>
+                <requireUpperBoundDeps/>
+                <banDuplicatePomDependencyVersions/>
+                <requirePluginVersions/>
+                <requireReleaseDeps/>
+              </rules>
+              <fail>true</fail>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        Strict javac. Every warning is a build failure (QUALITY-GATES.md).
+        -parameters keeps parameter names for Spring/Jackson binding.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <!--
+            Error Prone + NullAway. Both work cleanly on Java 21 / Boot 3.5; the
+            JDK internals they need are opened in .mvn/jvm.config, and
+            -XDaddTypeAnnotationsToSymbol / -XDcompilePolicy=simple are Error
+            Prone's own requirements on JDK 21, not workarounds.
+
+            Generated sources are excluded two ways, for two different reasons:
+            XepExcludedPaths stops Error Prone reporting on code we did not
+            write, and UnannotatedSubPackages tells NullAway to treat the
+            generated API package as unannotated so calls into it are not judged
+            against nullability it never declared.
+          -->
+          <compilerArgs>
+            <arg>-Xlint:all</arg>
+            <arg>-Werror</arg>
+            <arg>-parameters</arg>
+            <arg>-XDcompilePolicy=simple</arg>
+            <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+            <arg>--should-stop=ifError=FLOW</arg>
+            <arg>-Xplugin:ErrorProne -Xep:NullAway:ERROR -XepExcludedPaths:.*/generated-sources/.* -XepOpt:NullAway:AnnotatedPackages=com.example.loop -XepOpt:NullAway:UnannotatedSubPackages=com.example.loop.api</arg>
+          </compilerArgs>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>com.google.errorprone</groupId>
+              <artifactId>error_prone_core</artifactId>
+              <version>2.50.0</version>
+            </path>
+            <path>
+              <groupId>com.uber.nullaway</groupId>
+              <artifactId>nullaway</artifactId>
+              <version>0.14.1</version>
+            </path>
+          </annotationProcessorPaths>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <!-- Layered jars are the default in Boot 3.x; stated here explicitly. -->
+          <layers><enabled>true</enabled></layers>
+        </configuration>
+      </plugin>
+
+      <!--
+        Ring split — this is what lets the image build run tests without a
+        Docker daemon inside it.
+
+          surefire  (`mvn test`)   : *Test.java only, i.e. the inner domain unit
+                                     ring and the @WebMvcTest slice ring. As a
+                                     second belt it also excludes anything
+                                     JUnit-tagged "requires-docker".
+          failsafe  (`mvn verify`) : *IT.java only, i.e. the Testcontainers
+                                     integration ring, the Cucumber acceptance
+                                     ring and the Pact provider verification.
+                                     All of those need a Docker daemon.
+
+        The Dockerfile build stage runs `./mvnw -DskipITs package`, so failsafe
+        never fires there and no container is ever started inside the build.
+        Developers and CI run `./mvnw verify` on the host, where Docker exists.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <excludedGroups>requires-docker</excludedGroups>
+          <!-- A -Dtest=... that matches nothing is a mistake, not a pass. -->
+          <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
+          <failIfNoTests>true</failIfNoTests>
+          <!-- Never let a skipped or flaky-rerun test look like a green build. -->
+          <rerunFailingTestsCount>0</rerunFailingTestsCount>
+          <skipAfterFailureCount>0</skipAfterFailureCount>
+          <!--
+            The cucumber engine is on the test classpath and would otherwise try
+            to discover feature files during `mvn test`. The acceptance ring is
+            failsafe's job, so keep surefire on Jupiter alone.
+          -->
+          <excludeJUnit5Engines>
+            <engine>cucumber</engine>
+          </excludeJUnit5Engines>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <includes>
+            <include>**/*IT.java</include>
+          </includes>
+          <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
+          <failIfNoTests>true</failIfNoTests>
+          <rerunFailingTestsCount>0</rerunFailingTestsCount>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <!--
+      `./mvnw -P mutation verify` adds the mutation gate to the normal build.
+      It is a profile rather than a default binding because PIT re-runs the test
+      suite once per mutant, which is the wrong cost for the fast local loop -
+      Mutation testing belongs on the PR gate rather than the inner ring: PIT
+      re-runs the kill set once per mutant, which is far too slow for a
+      red-green cycle but entirely affordable once per pull request.
+    -->
+    <profile>
+      <id>mutation</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <executions>
+              <execution>
+                <id>pitest-check</id>
+                <phase>verify</phase>
+                <goals><goal>mutationCoverage</goal></goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

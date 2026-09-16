@@ -1,0 +1,35 @@
+{
+  "name": "fullstack-loop-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright + axe-core deployment acceptance for the Fullstack Loop stack. A handful of critical browser journeys against a deployed stack -- not the primary test suite.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "list": "playwright test --list",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
+    "@types/node": "22.19.1",
+    "axe-core": "4.13.0",
+    "eslint": "10.10.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-playwright": "2.12.0",
+    "jose": "6.2.12",
+    "playwright-core": "1.63.0",
+    "prettier": "3.9.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.0"
+  },
+  "overrides": {
+    "playwright-core": "1.63.0"
+  }
+}

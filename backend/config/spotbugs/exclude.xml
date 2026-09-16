@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SpotBugs runs at effort=Max / threshold=Low. The only thing filtered out is
+  the code we do not write: the API interface and wire model generated from
+  openapi/openapi.yaml into target/generated-sources. Hand-written code is held
+  to the full rule set, with any exception suppressed inline at its use site.
+-->
+<FindBugsFilter
+    xmlns="https://github.com/spotbugs/filter/3.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="https://github.com/spotbugs/filter/3.0.0 https://raw.githubusercontent.com/spotbugs/spotbugs/master/spotbugs/etc/findbugsfilter.xsd">
+  <Match>
+    <Package name="~com\.example\.loop\.api(\..*)?" />
+  </Match>
+</FindBugsFilter>

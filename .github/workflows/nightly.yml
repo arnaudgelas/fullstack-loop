@@ -1,0 +1,147 @@
+name: Nightly Full Gate
+
+# Full-strength nightly run: the same gate ci/pr-validation.sh runs on every
+# PR, but at full scope (MUTATION_SCOPE=all instead of the PR-time "changed"
+# diff), against a completely fresh, no-cache rebuild of every image, followed
+# by the full docker-compose system-test cycle (mint a dev token, bring the
+# stack up, run the e2e profile against it). This is the periodic "broader"
+# mutation run and the drift check that README.md / QUALITY-GATES.md /
+# ci/pr-validation.sh all describe as too expensive to run on every PR.
+#
+# This workflow never publishes anything -- see release.yml for that -- so it
+# only ever needs read access to the repository contents.
+
+on:
+  schedule:
+    # 03:00 UTC daily. Chosen as an off-peak hour that sits after the US
+    # evening and before the EU/APAC morning ramp-up, so a run that rebuilds
+    # five images from scratch with --no-cache and then runs a full mutation
+    # sweep doesn't queue behind, or compete for GitHub-hosted runner capacity
+    # with, the bulk of ordinary PR activity from this repository's two
+    # largest contributor timezones. Adjust if the real contributor base
+    # differs from that assumption.
+    - cron: '0 3 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# A second scheduled tick landing before the previous run has finished (or a
+# manual workflow_dispatch fired mid-run) must not race the in-flight run --
+# cancel the older one rather than let two nightly runs contend for the same
+# Docker daemon and ports on the same runner class.
+concurrency:
+  group: nightly-full-gate
+  cancel-in-progress: true
+
+jobs:
+  nightly-full-gate:
+    runs-on: ubuntu-latest
+    # Full --no-cache rebuild of 5 images + full-scope mutation testing +
+    # the full e2e cycle is meaningfully slower than the PR gate.
+    timeout-minutes: 240
+    steps:
+      # MUTATION_SCOPE=all does not diff against a base ref (that is only the
+      # "changed" / PR mode), so this run never needs to resolve BASE_REF or
+      # walk history -- a shallow, single-commit checkout is correct here,
+      # not a corner cut.
+      - name: Checkout (shallow -- full mutation scope needs no git history)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+
+      - name: Generate a development JWT keypair
+        run: ./scripts/gen-dev-keys.sh
+
+      - name: Mint a development token for the composed stack
+        run: echo "FULLSTACK_LOOP_DEV_TOKEN=$(./scripts/mint-dev-token.sh)" >> "$GITHUB_ENV"
+
+      # docker-compose.yml's `ci` service grants the container's non-root user
+      # access to the mounted host socket via `group_add:
+      # "${DOCKER_SOCKET_GID:-0}"` (see ci/Dockerfile's header comment and
+      # DOCKER-CONVENTIONS.md). On the GitHub-hosted Ubuntu runner the socket
+      # is owned by root:docker, so this resolves the real docker group gid
+      # instead of relying on the "Docker Desktop" fallback of 0.
+      - name: Resolve the host docker socket group
+        run: echo "DOCKER_SOCKET_GID=$(stat -c '%g' /var/run/docker.sock)" >> "$GITHUB_ENV"
+
+      # The point of a nightly run is catching drift a cached build would
+      # paper over (a stale base-image digest, a dependency that moved since
+      # the last cached layer), so every one of the five images is rebuilt
+      # with no layer-cache reuse. All three profile groups are activated so
+      # codegen/e2e/ci (profile-gated, not part of the compose default set)
+      # are included alongside backend/frontend.
+      - name: Build every image with no layer-cache reuse
+        run: docker compose --profile codegen --profile e2e --profile ci build --no-cache
+
+      # Mirrors `docker compose --profile ci run --rm ci` (README.md /
+      # docker-compose.yml), with RUN_MUTATION and MUTATION_SCOPE overridden
+      # for the periodic full-strength run. RUN_MUTATION is set explicitly
+      # rather than relying on the script's "= STRICT" default so nightly can
+      # never silently skip mutation testing regardless of how STRICT is
+      # configured. HOST_WORKSPACE is supplied by docker-compose.yml itself
+      # (`"${PWD}"` in the `ci` service's environment block) since the
+      # contract gates start sibling containers on the host daemon and need
+      # the real host checkout path (see ci/pr-validation.sh's header comment).
+      - name: Full-strength gate (mutation scope = all)
+        id: gate
+        continue-on-error: true
+        run: |
+          docker compose --profile ci run --rm \
+            -e RUN_MUTATION=1 \
+            -e MUTATION_SCOPE=all \
+            ci
+
+      - name: Start the stack (mongo + backend + frontend)
+        if: steps.gate.outcome == 'success'
+        run: docker compose up -d
+
+      - name: Wait for backend and frontend health
+        if: steps.gate.outcome == 'success'
+        run: |
+          timeout 120 bash -c 'until curl -fsS http://localhost:8080/actuator/health >/dev/null; do sleep 3; done'
+          timeout 120 bash -c 'until curl -fsS http://localhost:4200/healthz >/dev/null; do sleep 3; done'
+
+      # Full rebuild-and-system-test, not just the unit/integration gate: run
+      # the browser acceptance profile against the freshly built, freshly
+      # composed stack.
+      - name: Run the browser acceptance suite (e2e profile)
+        id: system_test
+        if: steps.gate.outcome == 'success'
+        continue-on-error: true
+        run: docker compose --profile e2e run --rm e2e
+
+      # Loud on failure: every report the PR-validation gate produces, using
+      # the same report paths ci/pr-validation.sh and the underlying
+      # backend/pom.xml (JaCoCo, PIT), frontend/package.json + stryker.config.mjs
+      # (Vitest coverage, Stryker) and e2e/playwright.config.ts (Playwright)
+      # write to. Kept to one artifact name/path list so it stays the single
+      # source of truth other workflows (pr-validate.yml) should match rather
+      # than diverging from.
+      - name: Upload every report (only runs if a stage above failed)
+        if: steps.gate.outcome == 'failure' || steps.system_test.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: nightly-failure-reports
+          path: |
+            backend/target/site/jacoco
+            backend/target/pit-reports
+            backend/target/surefire-reports
+            backend/target/failsafe-reports
+            frontend/coverage
+            frontend/reports/mutation
+            e2e/playwright-report
+            e2e/test-results
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Tear down the stack
+        if: always()
+        run: docker compose down -v
+
+      - name: Fail the job if any stage failed
+        if: steps.gate.outcome == 'failure' || steps.system_test.outcome == 'failure'
+        run: |
+          echo "gate outcome: ${{ steps.gate.outcome }}" >&2
+          echo "system-test outcome: ${{ steps.system_test.outcome }}" >&2
+          exit 1

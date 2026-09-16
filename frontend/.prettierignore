@@ -1,0 +1,10 @@
+# Generated from openapi/openapi.yaml — never hand-edited, never formatted.
+src/app/api/generated/
+dist/
+out-tsc/
+coverage/
+reports/
+pacts/
+.angular/
+node_modules/
+package-lock.json
