@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/angular';
 import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import type { Observable } from 'rxjs';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NewTask, Task } from '../api/generated';
@@ -51,6 +51,67 @@ describe('TaskListComponent', () => {
 
     const items = await screen.findAllByRole('listitem');
     expect(items.map((li) => li.textContent.trim())).toEqual(['apple', 'Banana', 'zebra']);
+  });
+
+  it('shows a distinct loading state while the request is pending, then ready', async () => {
+    const pending = new Subject<Task[]>();
+    const api = fakeApi({ listTasks: vi.fn(() => pending.asObservable()) });
+
+    const { container } = await render(TaskListComponent, {
+      providers: [{ provide: TasksService, useValue: api }],
+    });
+
+    // The request has not resolved yet: the loading state is real, rendered
+    // output (not just a signal nobody reads) -- both the state() -> DOM
+    // attribute binding and the "Loading…" copy the user actually sees.
+    expect(container.querySelector('[data-state]')?.getAttribute('data-state')).toBe('loading');
+    expect(screen.getByText('Loading tasks…')).toBeDefined();
+    expect(screen.queryByTestId('task-list')).toBeNull();
+
+    pending.next([task('1', 'arrived')]);
+    pending.complete();
+
+    expect(await screen.findByText('arrived')).toBeDefined();
+    expect(container.querySelector('[data-state]')?.getAttribute('data-state')).toBe('ready');
+  });
+
+  it('disables the add-task button only while the create request is pending', async () => {
+    const pending = new Subject<Task>();
+    const api = fakeApi({ createTask: vi.fn(() => pending.asObservable()) });
+    await renderList(api);
+    await screen.findByText('No tasks yet.');
+
+    const user = userEvent.setup();
+    await user.type(screen.getByTestId('new-task-title'), 'in flight');
+    await user.click(screen.getByTestId('add-task'));
+
+    const button = screen.getByTestId<HTMLButtonElement>('add-task');
+    expect(button.disabled).toBe(true);
+
+    pending.next(task('1', 'in flight'));
+    pending.complete();
+
+    await screen.findByText('in flight');
+    expect(button.disabled).toBe(false);
+  });
+
+  it('re-enables the add-task button after a failed create', async () => {
+    const pending = new Subject<Task>();
+    const api = fakeApi({ createTask: vi.fn(() => pending.asObservable()) });
+    await renderList(api);
+    await screen.findByText('No tasks yet.');
+
+    const user = userEvent.setup();
+    await user.type(screen.getByTestId('new-task-title'), 'will fail');
+    await user.click(screen.getByTestId('add-task'));
+
+    const button = screen.getByTestId<HTMLButtonElement>('add-task');
+    expect(button.disabled).toBe(true);
+
+    pending.error(httpError(500));
+
+    await screen.findByRole('alert');
+    expect(button.disabled).toBe(false);
   });
 
   it('exposes the DOM contract the e2e suite relies on', async () => {
@@ -108,6 +169,10 @@ describe('TaskListComponent', () => {
 
     expect((await screen.findByRole('alert')).textContent).toBe('Could not load tasks.');
     expect(screen.queryByTestId('unauthorized')).toBeNull();
+    // `state` genuinely reaches 'ready' (not left on 'loading', and not some
+    // other placeholder value) -- it is real rendered output, not an
+    // implementation detail: the template binds it as `[attr.data-state]`.
+    expect(document.querySelector('[data-state]')?.getAttribute('data-state')).toBe('ready');
   });
 
   it('reports a non-HTTP failure (no status at all) as an ordinary error', async () => {

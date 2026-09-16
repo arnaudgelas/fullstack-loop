@@ -77,9 +77,16 @@ import type { LoadState } from './task-logic';
 export class TaskListComponent {
   private readonly api = inject(TasksService);
 
+  // ACCEPTED DEVIATION (two lines): these seed values are placeholders only.
+  // The constructor calls reload() synchronously, which overwrites both
+  // before Angular's first render, so no test can observe -- or should try
+  // to observe -- the seed literal itself; only reload()'s own explicit
+  // .set() calls are real, testable behaviour (and are tested).
+  // Stryker disable next-line ArrayDeclaration
   private readonly loaded = signal<readonly Task[]>([]);
 
   readonly draft = signal('');
+  // Stryker disable next-line StringLiteral
   readonly state = signal<LoadState>('loading');
   readonly busy = signal(false);
   readonly message = signal<string | null>(null);
@@ -129,12 +136,17 @@ export class TaskListComponent {
 
   /**
    * A 401 is a distinct, user-visible state — never a silently empty list.
-   * Everything else is reported inline without destroying the current view.
+   * The template enforces this structurally: the `unauthorized` and list
+   * branches are mutually exclusive `@if`/`@else`, so `tasks()` can never
+   * render while `state()` is `'unauthorized'` regardless of what `loaded`
+   * holds, and the next successful load always overwrites `loaded` before
+   * the list branch can render again. There is deliberately no redundant
+   * `loaded.set([])` here — everything else is reported inline without
+   * destroying the current view.
    */
   private fail(error: unknown, fallbackMessage: string): void {
     const status = error instanceof HttpErrorResponse ? error.status : null;
     if (classifyApiFailure(status) === 'unauthorized') {
-      this.loaded.set([]);
       this.state.set('unauthorized');
       this.message.set(null);
       return;
