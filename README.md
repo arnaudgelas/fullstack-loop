@@ -1,5 +1,7 @@
 # Fullstack Loop
 
+![Fullstack Loop](loop.png)
+
 A reference full-stack repository built around one idea: **the test you write first
 determines the design you end up with.** An Angular frontend and a Spring Boot backend
 are joined by a single OpenAPI contract, and every layer of the system is driven from a

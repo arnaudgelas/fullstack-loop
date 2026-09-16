@@ -229,8 +229,12 @@ do_spring() {
 # this image's output. Nothing else is normalised: every other byte must match.
 normalise_tree() {
   local dir=$1
+  # Anchored to the annotation line itself (`Generated(value = "...", date =
+  # "...", ...)`), not a bare substring match against the whole file -- a
+  # hand-edit elsewhere that happens to contain the literal text `, date =
+  # "..."` must NOT be silently hidden from the diff.
   find "${dir}" -type f -name '*.java' -exec \
-    sed -i -E 's/, date = "[^"]*"//' {} +
+    sed -i -E '/Generated\(value = /s/, date = "[^"]*"//' {} +
 }
 
 # ACCEPTED DEVIATION (narrow, two paths): drop openapi-generator's own

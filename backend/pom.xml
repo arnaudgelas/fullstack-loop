@@ -331,10 +331,14 @@
             <configuration>
               <inputSpec>${openapi.spec}</inputSpec>
               <!--
-                Match the codegen image: validate the spec strictly instead of
-                letting the generator recover from a broken contract.
+                Match the codegen image (tools/codegen/codegen.sh's strict
+                spec flag is on, and its skip validation flag is absent):
+                validate the spec strictly and hold it to MUST/SHALL wording,
+                rather than only "don't skip validation", which is a weaker,
+                separate knob; this pair of options closes the gap.
               -->
               <skipValidateSpec>false</skipValidateSpec>
+              <strictSpec>true</strictSpec>
               <generatorName>spring</generatorName>
               <library>spring-boot</library>
               <apiPackage>com.example.loop.api</apiPackage>
