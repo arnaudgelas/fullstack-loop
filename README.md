@@ -1,5 +1,10 @@
 # Fullstack Loop
 
+[![PR Validation](https://github.com/arnaudgelas/fullstack-loop/actions/workflows/pr-validate.yml/badge.svg?event=pull_request)](https://github.com/arnaudgelas/fullstack-loop/actions/workflows/pr-validate.yml)
+[![Nightly Full Gate](https://github.com/arnaudgelas/fullstack-loop/actions/workflows/nightly.yml/badge.svg)](https://github.com/arnaudgelas/fullstack-loop/actions/workflows/nightly.yml)
+[![Release](https://github.com/arnaudgelas/fullstack-loop/actions/workflows/release.yml/badge.svg)](https://github.com/arnaudgelas/fullstack-loop/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 ![Fullstack Loop](loop.png)
 
 A reference full-stack repository built around one idea: **the test you write first
