@@ -26,6 +26,19 @@ FROM eclipse-temurin:21-jdk-jammy AS deps
 
 WORKDIR /workspace
 
+# unzip: eclipse-temurin:21-jdk-jammy does not ship it, so mvnw's "select .zip
+# or .tar.gz" fallback (mvnw: "if ! command -v unzip ... distributionUrl=...
+# .tar.gz") would silently download the .tar.gz instead of the .zip. The
+# distributionSha256Sum pinned in .mvn/wrapper/maven-wrapper.properties is the
+# .zip's checksum, so that fallback deterministically fails the wrapper's own
+# "Failed to validate Maven distribution SHA-256" check on every build.
+# Installing unzip here forces mvnw onto the .zip path the pinned checksum
+# actually matches. Version pinned per hadolint DL3008.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update \
+ && apt-get install -y --no-install-recommends unzip=6.0-26ubuntu3.2
+
 COPY backend/.mvn/ .mvn/
 COPY backend/mvnw .
 COPY backend/pom.xml .
