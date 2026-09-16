@@ -1,4 +1,4 @@
-import { allowBenignInitialTasksAbort, expect, test } from './support/fixtures';
+import { allowBenignTasksAbort, expect, test } from './support/fixtures';
 import { installRuntimeConfig } from './support/runtime-config';
 import {
   heading,
@@ -38,7 +38,7 @@ test.describe('authenticated task journeys', () => {
   });
 
   test('the task list loads', async ({ page, consoleGuard }) => {
-    allowBenignInitialTasksAbort(consoleGuard);
+    allowBenignTasksAbort(consoleGuard);
 
     const listResponse = page.waitForResponse(
       (response) =>
@@ -68,7 +68,7 @@ test.describe('authenticated task journeys', () => {
   });
 
   test('creating a task shows it in the list', async ({ page, consoleGuard }) => {
-    allowBenignInitialTasksAbort(consoleGuard);
+    allowBenignTasksAbort(consoleGuard);
 
     const title = uniqueTitle();
 

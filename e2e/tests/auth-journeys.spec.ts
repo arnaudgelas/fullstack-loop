@@ -1,4 +1,4 @@
-import { allowBenignInitialTasksAbort, expect, test } from './support/fixtures';
+import { allowBenignTasksAbort, expect, test } from './support/fixtures';
 import { installRuntimeConfig } from './support/runtime-config';
 import { shell, taskList, unauthorizedState } from './support/selectors';
 import { mintExpiredToken } from './support/tokens';
@@ -41,7 +41,7 @@ for (const { name, token } of cases) {
       /response\.401: GET .*\/api\/tasks$/,
       'the provider response is the deliberate 401 asserted by this journey',
     );
-    allowBenignInitialTasksAbort(consoleGuard);
+    allowBenignTasksAbort(consoleGuard);
 
     await installRuntimeConfig(page, await token());
 

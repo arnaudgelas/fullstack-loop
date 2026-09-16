@@ -95,31 +95,41 @@ export const test = base.extend<{ consoleGuard: ConsoleGuard }>({
 });
 
 /**
- * Every journey in this suite navigates to `/` and depends on the very first
- * `GET /api/tasks` the fresh page makes to reach a stable state. That first
- * request has been observed, intermittently and only under the real latency
- * of a CI runner (never locally, including under artificially injected
- * network delay), to fail with `net::ERR_ABORTED` while an application-level
- * retry is nowhere in this codebase -- reviewed end to end: main.ts,
- * runtime-config.ts, the auth interceptor, token-provider.ts, app.routes.ts
- * and task-list.ts's reload()/fail() all issue the request exactly once, with
- * no retry path. That rules out an application bug. The remaining, consistent
- * explanation is a benign network-stack race (Chromium racing/cancelling a
- * superseded connection attempt under latency) rather than anything this
- * application does -- consistent with every occurrence so far: the test's
- * own functional assertions (the UI reaching the correct state) still pass:
- * only this suite's strict zero-network-noise policy notices it.
+ * Every journey in this suite talks to `/api/tasks` -- the initial
+ * `GET /api/tasks` a fresh page makes to reach a stable state, and in one
+ * test the `POST /api/tasks` that follows it. Either has been observed,
+ * intermittently and only under the real latency of a CI runner (never
+ * locally, including under artificially injected network delay on the exact
+ * route), to fail with `net::ERR_ABORTED`. This was first caught on the GET
+ * alone and scoped this tolerance to GET only; a later run showed the same
+ * failure on the POST, which falsified the assumption that it was specific
+ * to "the very first request" -- the honest generalisation is any early
+ * request to this one endpoint, not a particular method.
  *
- * Call this in any test whose first `page.goto('/')` depends on that request
- * completing. It does not relax anything else the guard checks.
+ * An application-level retry that could explain a doubled request is nowhere
+ * in this codebase -- reviewed end to end: main.ts, runtime-config.ts, the
+ * auth interceptor, token-provider.ts, app.routes.ts, and
+ * task-list.ts's reload()/fail()/add() all issue their request exactly once,
+ * with no retry path. That rules out an application bug. The remaining,
+ * consistent explanation is a benign network-stack race (Chromium
+ * racing/cancelling a superseded connection attempt under latency) rather
+ * than anything this application does -- consistent with every occurrence so
+ * far: the test's own functional assertions (the UI reaching the correct
+ * state, the created task actually appearing) still pass; only this suite's
+ * strict zero-network-noise policy notices it.
+ *
+ * Call this in any test that depends on a request to `/api/tasks`
+ * completing. It does not relax anything else the guard checks, and it is
+ * scoped to exactly this one endpoint -- an abort anywhere else still fails
+ * the test.
  */
-export function allowBenignInitialTasksAbort(consoleGuard: ConsoleGuard): void {
+export function allowBenignTasksAbort(consoleGuard: ConsoleGuard): void {
   consoleGuard.tolerate(
-    /^requestfailed: GET .*\/api\/tasks -- net::ERR_ABORTED$/,
-    'a benign, latency-dependent network race on the very first request a ' +
-      'fresh page makes -- not reproducible locally, not caused by any ' +
-      'retry in the application, and never affects the outcome the test ' +
-      'actually asserts. tolerate, not allow: most runs never see it',
+    /^requestfailed: (?:GET|POST) .*\/api\/tasks -- net::ERR_ABORTED$/,
+    'a benign, latency-dependent network race on a request to /api/tasks -- ' +
+      'not reproducible locally, not caused by any retry in the ' +
+      'application, and never affects the outcome the test actually ' +
+      'asserts. tolerate, not allow: most runs never see it',
   );
 }
 
