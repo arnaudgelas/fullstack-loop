@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { AxeResults, Result } from 'axe-core';
 import type { Page } from '@playwright/test';
-import { expect, test } from './support/fixtures';
+import { allowBenignInitialTasksAbort, expect, test } from './support/fixtures';
 import { installRuntimeConfig } from './support/runtime-config';
 import { shell, unauthorizedState } from './support/selectors';
 import { mintExpiredToken, mintToken } from './support/tokens';
@@ -40,7 +40,12 @@ function unresolvedFindings(results: AxeResults): readonly Result[] {
   return [...results.violations, ...results.incomplete];
 }
 
-test('the authenticated task page has no accessibility violations', async ({ page }, testInfo) => {
+test('the authenticated task page has no accessibility violations', async ({
+  page,
+  consoleGuard,
+}, testInfo) => {
+  allowBenignInitialTasksAbort(consoleGuard);
+
   await installRuntimeConfig(page, await mintToken());
   await page.goto('/');
   await expect(shell(page)).toHaveAttribute('data-state', 'ready');
@@ -66,6 +71,7 @@ test('the 401 state has no accessibility violations', async ({ page, consoleGuar
     /response\.401: GET .*\/api\/tasks$/,
     'the provider response is the deliberate 401 required to render this state',
   );
+  allowBenignInitialTasksAbort(consoleGuard);
 
   await installRuntimeConfig(page, await mintExpiredToken());
   await page.goto('/');

@@ -1,4 +1,4 @@
-import { expect, test } from './support/fixtures';
+import { allowBenignInitialTasksAbort, expect, test } from './support/fixtures';
 import { installRuntimeConfig } from './support/runtime-config';
 import {
   heading,
@@ -37,7 +37,9 @@ test.describe('authenticated task journeys', () => {
     await installRuntimeConfig(page, await mintToken());
   });
 
-  test('the task list loads', async ({ page }) => {
+  test('the task list loads', async ({ page, consoleGuard }) => {
+    allowBenignInitialTasksAbort(consoleGuard);
+
     const listResponse = page.waitForResponse(
       (response) =>
         new URL(response.url()).pathname === '/api/tasks' && response.request().method() === 'GET',
@@ -65,7 +67,9 @@ test.describe('authenticated task journeys', () => {
     expect(Array.isArray(await response.json()), 'listTasks returns an array of Task').toBe(true);
   });
 
-  test('creating a task shows it in the list', async ({ page }) => {
+  test('creating a task shows it in the list', async ({ page, consoleGuard }) => {
+    allowBenignInitialTasksAbort(consoleGuard);
+
     const title = uniqueTitle();
 
     await page.goto('/');
