@@ -77,11 +77,21 @@ COPY frontend/test ./test
 COPY --from=codegen /generated ./src/app/api/generated
 
 # One RUN, because hadolint's DL3059 forbids consecutive RUN instructions. The
-# `verify` script chains the gates with && in the documented gate order, so it still
-# stops at the first failure and the failing gate is named in the log:
+# `verify:image` script chains the gates with && in the documented gate order,
+# so it still stops at the first failure and the failing gate is named in the
+# log:
 #   format:check -> lint -> typecheck -> test:unit -> test:component
-#   -> test (aggregate, whole-codebase coverage) -> test:mutation -> build
-RUN npm run verify
+#   -> test (aggregate, whole-codebase coverage) -> build
+#
+# Deliberately NOT `npm run verify` (which additionally runs test:mutation):
+# ci/pr-validation.sh already runs Stryker as its own scoped mutation-stryker
+# step, before this image is ever built, so running the full, unscoped
+# mutation suite again here is both redundant and heavy -- 13 concurrent
+# worker processes inside a single build layer is real OOM risk on a
+# resource-constrained runner. `npm run verify` (the full chain, including
+# mutation testing) is still what a developer runs locally to check
+# everything by hand.
+RUN npm run verify:image
 
 # ---------------------------------------------------------------------------
 # runtime — nginx-unprivileged already runs as uid 101 (nginx) and keeps its
