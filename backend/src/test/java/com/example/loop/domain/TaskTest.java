@@ -1,5 +1,6 @@
 package com.example.loop.domain;
 
+import static com.example.loop.domain.Task.MAX_TITLE_LENGTH;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -48,12 +49,7 @@ class TaskTest {
     @Test
     @DisplayName("a title longer than 200 characters is rejected")
     void tooLongTitleRejected() {
-        // LawOfDemeter flags reading a public static final constant the same
-        // way it flags chaining through an object graph; the two are not the
-        // same thing, and there is no less-coupled way to reference the
-        // domain's own published boundary. Narrow, single-line suppression.
-        @SuppressWarnings("PMD.LawOfDemeter")
-        String tooLong = "x".repeat(Task.MAX_TITLE_LENGTH + 1);
+        String tooLong = "x".repeat(MAX_TITLE_LENGTH + 1);
 
         assertThatThrownBy(() -> Task.pending(tooLong, NOW))
                 .isInstanceOf(InvalidTaskException.class)
@@ -63,8 +59,8 @@ class TaskTest {
     @Test
     @DisplayName("a title of exactly 200 characters is accepted")
     void boundaryTitleAccepted() {
-        String exactly = "x".repeat(Task.MAX_TITLE_LENGTH);
+        String exactly = "x".repeat(MAX_TITLE_LENGTH);
 
-        assertThat(Task.pending(exactly, NOW).title()).hasSize(Task.MAX_TITLE_LENGTH);
+        assertThat(Task.pending(exactly, NOW).title()).hasSize(MAX_TITLE_LENGTH);
     }
 }
