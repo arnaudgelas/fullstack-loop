@@ -1,0 +1,162 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+
+  // Sane, actively-maintained defaults: grouped minor/patch updates, a
+  // Dependency Dashboard issue, lockfile maintenance, vulnerability alerts
+  // that bypass scheduling, and rate-limited PR creation.
+  extends: ['config:recommended'],
+
+  // Deliberate policy, not an oversight: nothing auto-merges. Six real,
+  // independent build breaks were found and fixed by hand in this repo's own
+  // CI history (a PMD rule disagreeing with itself pre/post-compile, an
+  // invented Stryker CLI flag, two unrelated Docker OOM/checksum failures, a
+  // genuine browser-level network race) -- none of them would have been
+  // caught by "it built, so merge it". Every update lands as a PR, gated by
+  // the same pr-validate.yml a human PR goes through, and is merged by a
+  // person who has read what changed.
+  automerge: false,
+
+  // The full Validate + System-test pipeline is not cheap (mutation testing,
+  // five Docker image builds, a live Playwright run). Batch routine updates
+  // instead of trickling in a PR per package.
+  schedule: ['before 6am on monday'],
+  prConcurrentLimit: 5,
+
+  packageRules: [
+    // This repo's whole ethos is reproducibility (see DOCKER-CONVENTIONS.md
+    // and README.md's "Pinned versions that are not arbitrary"). A floating
+    // Docker tag gets an immutable digest appended alongside it -- the
+    // human-readable tag stays, so `docker build` output is still legible,
+    // but the resolved image can no longer drift silently underneath an
+    // unchanged tag.
+    {
+      matchCategories: ['docker'],
+      pinDigests: true,
+    },
+
+    // ---------------------------------------------------------------------
+    // Pins documented in README.md's "Pinned versions that are not
+    // arbitrary" as actively broken if bumped alone. Renovate cannot
+    // evaluate JUnit Platform / peer-dependency compatibility, so these
+    // always carry the reason inline in the PR rather than relying on
+    // whoever is merging to have README.md memorized.
+    // ---------------------------------------------------------------------
+    {
+      matchManagers: ['maven'],
+      matchPackageNames: ['io.cucumber:*'],
+      groupName: 'Cucumber (must move with the JUnit Platform Spring Boot manages)',
+      automerge: false,
+      prBodyNotes: [
+        '**Read before merging** (README.md, "Pinned versions that are not arbitrary"): Cucumber 7.26+ requires JUnit Platform 1.13+, but Spring Boot 3.5 manages 1.12.x, and the mismatch fails at test engine discovery, not at compile time. Bump this together with the `spring-boot-starter-parent` version below, in the same PR, after confirming what JUnit Platform version the target Spring Boot release manages -- never alone.',
+      ],
+    },
+    {
+      matchManagers: ['maven'],
+      matchPackageNames: ['org.springframework.boot:spring-boot-starter-parent'],
+      groupName: 'Cucumber (must move with the JUnit Platform Spring Boot manages)',
+      automerge: false,
+    },
+    {
+      matchManagers: ['maven'],
+      matchPackageNames: ['org.jspecify:jspecify'],
+      automerge: false,
+      prBodyNotes: [
+        'pom.xml documents this version as kept in lockstep with whatever jspecify version spring-security-oauth2-jose itself resolves -- confirm that still holds before merging an independent bump.',
+      ],
+    },
+    // Blocks the update outright rather than leaving it to manual review:
+    // per README.md, @angular/build 20.3 declares peerOptional
+    // vitest@^3.1.1, and npm hard-fails ERESOLVE on any vitest major above
+    // that today. This is not "be careful merging", it is "this will not
+    // install" -- re-enable once @angular/build's peer range allows it.
+    {
+      matchManagers: ['npm'],
+      matchFileNames: ['frontend/package.json'],
+      matchPackageNames: ['vitest', '@vitest/coverage-v8'],
+      matchUpdateTypes: ['major'],
+      enabled: false,
+    },
+    // Same reasoning: README.md documents @testing-library/angular 19.x as
+    // requiring Angular 21, and this repo is on Angular 20.
+    {
+      matchManagers: ['npm'],
+      matchFileNames: ['frontend/package.json'],
+      matchPackageNames: ['@testing-library/angular'],
+      matchUpdateTypes: ['major'],
+      enabled: false,
+    },
+    {
+      matchManagers: ['docker-compose'],
+      matchPackageNames: ['mongo'],
+      matchUpdateTypes: ['major', 'minor'],
+      automerge: false,
+      prBodyNotes: [
+        'README.md: the floating mongo:8.0 tag aborts on Docker Desktop\'s linuxkit kernel (SERVER-121912) -- that is why this is pinned to an exact patch (8.0.20) rather than a minor tag at all. Patch bumps within 8.0.x are routine; re-verify against a real Docker Desktop start before taking a minor/major bump.',
+      ],
+    },
+
+    // ---------------------------------------------------------------------
+    // Lockstep pairs that are NOT yet written down in README.md (found
+    // while wiring up this config, not previously documented) -- one
+    // dependency expressed identically in more than one file/ecosystem,
+    // where bumping only one copy leaves the others silently stale.
+    // ---------------------------------------------------------------------
+    {
+      groupName: 'openapi-generator (three call sites, must match exactly)',
+      matchPackageNames: [
+        'openapitools/openapi-generator-cli',
+        'org.openapitools:openapi-generator-maven-plugin',
+      ],
+      automerge: false,
+      prBodyNotes: [
+        'The generator version is pinned identically in three places: tools/codegen/Dockerfile (and codegen.sh), backend/pom.xml\'s openapi-generator.version, and the literal docker image tag inside frontend/package.json\'s generate:api script (tracked separately below, since that occurrence is a plain string Renovate cannot see as a Docker reference). All three must land on the same version, or codegen verify\'s drift check and the three independent code-generation paths stop agreeing with each other.',
+      ],
+    },
+    {
+      groupName: 'Playwright (browser image and npm package must match exactly)',
+      matchPackageNames: ['mcr.microsoft.com/playwright', '@playwright/test', 'playwright-core'],
+      automerge: false,
+      prBodyNotes: [
+        'e2e/Dockerfile\'s PLAYWRIGHT_IMAGE tag and @playwright/test in e2e/package.json must carry the identical version -- a mismatched driver/browser pair is the classic way this fails, silently, at test-run time rather than at build time.',
+      ],
+    },
+
+    // ---------------------------------------------------------------------
+    // GitHub Actions: already pinned to full commit SHAs with a trailing
+    // `# vX.Y.Z` comment in every workflow, exactly Renovate's expected
+    // format -- it updates the SHA and rewrites the comment together. Low
+    // risk (CI plumbing, not application code) and there are 17 occurrences
+    // across three files today; batch them into one PR instead of one each.
+    // ---------------------------------------------------------------------
+    {
+      matchManagers: ['github-actions'],
+      groupName: 'GitHub Actions',
+    },
+
+    // ---------------------------------------------------------------------
+    // Maven wrapper: a real, first-class Renovate manager that regenerates
+    // distributionSha256Sum correctly on a version bump (unlike
+    // versions/node.env below) -- this is why backend/Dockerfile installing
+    // `unzip` was the right fix rather than a version pin: the wrapper's
+    // own checksum machinery is fine and safe to automate at any version.
+    // ---------------------------------------------------------------------
+    {
+      matchManagers: ['maven-wrapper'],
+      automerge: false,
+    },
+  ],
+
+  // versions/node.env is deliberately NOT covered by any custom manager
+  // here. It pins Node's version alongside hand-verified per-arch SHA256
+  // checksums that ci/Dockerfile and e2e/Dockerfile check before trusting
+  // the download; no built-in Renovate manager parses this shell-env-style
+  // format, and a naive regex manager could update NODE_VERSION without
+  // being able to regenerate the two checksums beside it, which would fail
+  // the build in exactly the way installing unzip for the Maven wrapper
+  // checksum was meant to prevent. Bumping the Node version here stays a
+  // deliberate, manual, documented act -- see the file's own header comment.
+
+  vulnerabilityAlerts: {
+    labels: ['security'],
+  },
+}

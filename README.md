@@ -356,6 +356,17 @@ without reading why:
 - **`withInterfaces=true`** in every Angular generation invocation — the generator's
   `api.ts` template unconditionally re-exports the interface file, so `false` produces a
   client that does not resolve.
+- **The OpenAPI generator version (`7.16.0`)** is pinned identically in three places —
+  `tools/codegen/Dockerfile`, `backend/pom.xml`'s `openapi-generator.version`, and the
+  literal docker image tag inside `frontend/package.json`'s `generate:api` script — because
+  they are three independent code-generation paths that must produce identical output for
+  `codegen verify`'s drift check to mean anything.
+- **The Playwright version** is pinned identically in `e2e/Dockerfile`'s `PLAYWRIGHT_IMAGE`
+  and `@playwright/test`/`playwright-core` in `e2e/package.json` — a mismatched
+  driver/browser pair fails silently at test-run time, not at build time.
+
+Renovate (`.github/renovate.json5`) knows about every pin above — grouped, non-automerging,
+and (where Renovate can enforce it) blocked outright rather than left to a reviewer's memory.
 
 ---
 
